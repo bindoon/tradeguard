@@ -1,0 +1,13 @@
+# Source provenance
+
+- `src/tradeguard/screening/strategies/` and `screening/indicators.py` were ported from `myskills/tools/stock-scanner/` on 2026-10-18. Initial changes are package imports and formatting. Existing signal semantics were retained.
+- Default scanner uses ma_golden_cross, macd_golden_cross, rsi_rebound, bollinger_breakout and box_breakout. The sixth pattern is retained in the registry and is not run by the default scanner because it requires prior-signal evidence.
+- `skills/stock-analyst/references/data-sources.md` comes from the corresponding myskills source directory. Other skills are generalized for this project and reference the new CLI.
+- `/Users/bouda/work/selection` revision `6dfbe07` supplied workflow context. The web/ frontend was copied from litefront at revision 6dfbe070 and adapted to TradeGuard APIs. Tradability filtering and sector strength are implemented in Python; live backtest is not ported.
+- The package is independently implemented around Python, SQLAlchemy and Alembic; ruyi supplied engineering context, not runtime code.
+
+No repository license has been selected. Keep the repository private until source rights and the intended license are settled. This document records provenance; it does not grant third-party rights.
+
+- Broker order normalization follows [Futu trading definitions](https://openapi.futunn.com/futu-api-doc/trade/trade.html) and [Longbridge order details](https://open.longbridge.com/docs/trade/order/order_detail). Standalone touched orders are not assumed to be verified stop-loss intent.
+
+- Longbridge fund unit/NAV fields follow [fund positions](https://open.longbridge.com/zh-CN/docs/trade/asset/fund); unit NAV is multiplied by holding units, and its observation date is preserved.

@@ -1,0 +1,5 @@
+export interface RealPosition {symbol:string;name:string|null;instrument_kind:'stock'|'other';currency:string;quantity:string;market_value:string|null;average_cost:string|null;observed_at:string|null;pnl:string|null;pnl_percent:string|null}
+export interface RealOrder {symbol:string;quantity:string|null;trigger_price:string|null;limit_price:string|null;order_kind:string;side:string;status:string;evidence:string;broker_order_id:string|null;raw_type:string|null;trailing_percent:string|null;activation_price:string|null;observed_at:string|null;note:string|null}
+export interface RealSnapshot {snapshot_id:string;as_of:string;assets_as_of:string|null;base_currency:string;net_assets:string|null;cash:string|null;margin_used:boolean|null;positions:RealPosition[];orders:RealOrder[];record_origin:string;statement:string|null;stale:boolean}
+export interface RealAccount {id:string;label:string;broker:string;snapshot:RealSnapshot|null;lastSync:{status:string;error?:string;at?:string}|null}
+export interface RealPortfolio {accounts:RealAccount[];as_of:string;note:string}

@@ -1,0 +1,13 @@
+{
+  "account_id": "demo",
+  "symbol": "600000.SH",
+  "currency": "CNY",
+  "action": "buy",
+  "style": "trend",
+  "quantity": "100",
+  "price": "10",
+  "stop_price": "9",
+  "stop_evidence": "planned",
+  "fees": "5",
+  "thesis": "Synthetic example; requires a real thesis and confirmed stop plan before assessment passes."
+}

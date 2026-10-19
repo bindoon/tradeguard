@@ -1,0 +1,8 @@
+{
+  "name": "example-only",
+  "single_stock_limit": "0.25",
+  "max_trade_loss": "0.02",
+  "monthly_drawdown_limit": "0.15",
+  "snapshot_max_age_minutes": 60,
+  "allow_manual_stop_confirmation": true
+}
