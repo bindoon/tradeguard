@@ -1,0 +1,4 @@
+# TradeGuard A-share daily pipeline. Do not install from the app setup.
+# Hour 3 is 03:30 in the cron daemon's timezone. Prefer CRON_TZ when the host is not already Asia/Shanghai.
+CRON_TZ=Asia/Shanghai
+30 3 * * * cd __REPO__ && __UV__ run tradeguard pipeline daily --market CN >> __REPO__/logs/tradeguard-daily.log 2>&1

@@ -15,7 +15,7 @@ Read README.md for commands; docs/architecture/README.md for system boundaries.
 - The source strategies were ported from myskills; retain attribution in docs/provenance.md. Licensing remains to be selected before public release.
 
 - TRADEGUARD_SELECTION_SOURCE_URL is a read-only import source, never a migration target. TRADEGUARD_DATABASE_URL is the independent runtime DB. Never print or commit their secrets.
-- daily defaults to cached legacy_mysql. Fetching a whole market requires explicit --refresh --source baostock or --source longbridge; do not trigger it to obtain a passing data-quality status.
+- `pipeline daily --market CN` backfills A-share bars from akshare, falls back to baostock, and logs the source switch. Cached scans stay on an explicit `--source` such as `legacy_mysql` and do not hit the network. Do not fetch a whole market merely to obtain a passing data-quality status.
 
 - CN/US/HK scans and charts must enforce market, source and date isolation. Never invent missing US data or neutral strength scores.
 - Manual account patches preserve unmentioned fields and their observation times, the original statement and previous snapshot ID.

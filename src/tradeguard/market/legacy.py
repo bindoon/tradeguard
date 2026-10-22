@@ -5,13 +5,14 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from pydantic import ValidationError
-from sqlalchemy import create_engine, text, update
+from sqlalchemy import text, update
 from sqlalchemy.dialects.mysql import insert
 
 from tradeguard.config import settings
 from tradeguard.db import engine, session
 from tradeguard.db.locks import named_lock
 from tradeguard.db.models import DailyBar, Run, Security, now
+from tradeguard.db.readonly import open_readonly
 from tradeguard.market.schemas import BarInput, currency_for, normalize_symbol
 
 FIELDS = [
@@ -86,7 +87,7 @@ def _import_mysql(
             db.add(run)
         db.flush()
         run_id, progress = run.id, dict(run.details)
-    source_engine = create_engine(
+    source_engine = open_readonly(
         source_url, connect_args={"connect_timeout": 10, "read_timeout": 90}
     )
     invocation_rows = 0

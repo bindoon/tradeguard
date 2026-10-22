@@ -20,6 +20,7 @@ portfolio = typer.Typer(no_args_is_help=True)
 discipline = typer.Typer(no_args_is_help=True)
 research = typer.Typer(no_args_is_help=True)
 pipeline = typer.Typer(no_args_is_help=True)
+report = typer.Typer(no_args_is_help=True)
 for name, sub in [
     ("market", market),
     ("scan", scan_app),
@@ -27,6 +28,7 @@ for name, sub in [
     ("discipline", discipline),
     ("research", research),
     ("pipeline", pipeline),
+    ("report", report),
 ]:
     app.add_typer(sub, name=name)
 
@@ -294,25 +296,67 @@ def research_save(file: Annotated[Path, typer.Option(exists=True, dir_okay=False
 
 @pipeline.command("daily")
 def pipeline_daily(
-    date: Annotated[str, typer.Option()],
-    symbol: Annotated[list[str] | None, typer.Option()] = None,
-    source: str = "legacy_mysql",
-    refresh: bool = False,
     market: str = "CN",
+    date: Annotated[
+        str | None, typer.Option(help="Single trading day. Omit to continue from the last bar.")
+    ] = None,
+    symbol: Annotated[list[str] | None, typer.Option()] = None,
+    source: str | None = None,
+    refresh: bool = False,
+    start: Annotated[str | None, typer.Option("--from")] = None,
+    end: Annotated[str | None, typer.Option("--to")] = None,
 ):
-    """Scan cache; --refresh --source baostock explicitly enables network synchronization."""
-    from tradeguard.jobs import daily
-    from tradeguard.market.schemas import normalize_symbol
+    """CN backfill uses akshare, then baostock if akshare is down. Explicit cache sources stay offline."""
 
-    output(
-        lambda: daily(
-            day(date),
-            [normalize_symbol(s) for s in symbol] if symbol else None,
-            source,
-            refresh,
-            market.upper(),
-        )
-    )
+    def invoke():
+        from tradeguard.market.schemas import normalize_symbol
+
+        selected = market.upper()
+        target = day(date) if date else None
+        first = day(start) if start else None
+        last = day(end) if end else None
+        if target and (first or last):
+            raise ValueError("--date cannot be combined with --from/--to")
+        if (first is None) ^ (last is None):
+            raise ValueError("--from and --to must be used together")
+        symbols = [normalize_symbol(item) for item in symbol] if symbol else None
+        if selected == "CN" and source in {None, "akshare"}:
+            from tradeguard.jobs import run_cn_pipeline
+
+            return run_cn_pipeline(target=target, start=first, end=last, symbols=symbols)
+        if selected == "CN" and source == "baostock" and refresh:
+            from tradeguard.jobs import run_cn_pipeline
+            from tradeguard.market.providers import BaostockProvider
+
+            return run_cn_pipeline(
+                target=target,
+                start=first,
+                end=last,
+                symbols=symbols,
+                primary=BaostockProvider(),
+                allow_fallback=False,
+            )
+        if source is None:
+            raise ValueError("US/HK daily runs require an explicit source")
+        from tradeguard.jobs import daily
+
+        if first and last:
+            return daily(last, symbols, source, refresh, selected, start=first, end=last)
+        return daily(target, symbols, source, refresh, selected)
+
+    output(invoke)
+
+
+@report.command("daily")
+def report_daily(
+    date: Annotated[str, typer.Option()],
+    market: str = "CN",
+    source: str | None = None,
+):
+    """JSON daily scan report: regime, strategy counts, resonance, sectors, day-over-day changes."""
+    from tradeguard.report import daily_report
+
+    output(lambda: daily_report(day(date), market.upper(), source))
 
 
 @app.command("example-snapshot")

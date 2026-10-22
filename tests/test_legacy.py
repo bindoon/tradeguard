@@ -76,7 +76,7 @@ class Source:
 def test_readonly_import_copy_resume_and_invalid_bar_accounting(database, monkeypatch):
     monkeypatch.setenv("TRADEGUARD_SELECTION_SOURCE_URL", "mysql+pymysql://synthetic")
     source = Source()
-    monkeypatch.setattr(legacy, "create_engine", lambda *args, **kwargs: source)
+    monkeypatch.setattr(legacy, "open_readonly", lambda *args, **kwargs: source)
     first = legacy.import_mysql(max_rows=1, batch_size=1)
     assert first["complete"] is False and first["rows_imported"] == 1
     second = legacy.import_mysql(resume_run=first["run_id"], batch_size=1)

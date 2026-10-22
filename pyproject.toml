@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-market = ["baostock>=0.8.9,<1"]
+market = ["akshare>=1.16,<2", "baostock>=0.8.9,<1"]
 migration = ["psycopg[binary]>=3.2,<4"]
 futu = ["futu-api>=9,<10"]
 longbridge = ["longbridge>=4.3,<5"]

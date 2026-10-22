@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     futu_acc_id: str | None = None
     futu_markets: str = "US,HK"
     futu_security_firm: str = "FUTUSECURITIES"
+    akshare_workers: int = 4
+    akshare_min_interval: float = 0.2
+    job_stale_seconds: int = 6 * 60 * 60
 
 
 def settings() -> Settings:

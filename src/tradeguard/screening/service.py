@@ -3,13 +3,25 @@ import inspect
 import json
 from collections import Counter, defaultdict
 from datetime import date
+from decimal import Decimal
 
 import pandas as pd
 from sqlalchemy import select
 
 from tradeguard.db import session
 from tradeguard.db.locks import named_lock
-from tradeguard.db.models import DailyBar, Run, RunEvent, ScanResult, Security, now
+from tradeguard.db.maintenance import retire_stale_runs
+from tradeguard.db.models import (
+    DailyBar,
+    Run,
+    RunEvent,
+    ScanResult,
+    ScanSummary,
+    Security,
+    now,
+    uid,
+)
+from tradeguard.db.write import upsert
 from tradeguard.screening import indicators
 from tradeguard.screening.filters import FilterOptions, rejection
 from tradeguard.screening.strategies.registry import get_registered_strategies
@@ -66,6 +78,7 @@ def scan(
     if min_resonance < 1:
         raise ValueError("min_resonance must be positive")
     options = FilterOptions.for_market(market, filters)
+    retire_stale_runs()
     run_id = run_id or create_run(target, market, source, filters)
     try:
         with named_lock(f"scan:{market}"):
@@ -98,7 +111,11 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
         if run is None or run.kind != "scan" or run.market != market:
             raise ValueError("Scan run mismatch")
         run.status = "running"
-        query = select(Security).where(Security.market == market).order_by(Security.symbol)
+        query = (
+            select(Security)
+            .where(Security.market == market, Security.security_kind != "index")
+            .order_by(Security.symbol)
+        )
         if symbols:
             query = query.where(Security.symbol.in_(symbols))
         securities = db.scalars(query).all()
@@ -197,6 +214,7 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
                 skipped.append({"symbol": security.symbol, "reason": reason})
                 continue
             scanned += 1
+            sector_name = security.sector or security.industry
             data = [
                 {
                     "date": str(b["trade_date"]),
@@ -206,23 +224,31 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
             ]
             digest.update(
                 json.dumps(
-                    [security.symbol, security.name, security.industry, data], sort_keys=True
+                    [security.symbol, security.name, sector_name, data], sort_keys=True
                 ).encode()
             )
             frame = pd.DataFrame(data)
-            hits = [
-                s.name
-                for s in strategies
-                if s.screen(
+            hit_details = []
+            for strategy in strategies:
+                found = strategy.screen(
                     stock_code=security.symbol,
                     stock_name=security.name,
                     df=frame.copy(),
                     result_date=str(target),
-                    industry=security.industry or "未知",
+                    industry=sector_name or "未知",
                 )
-            ]
+                if found:
+                    hit_details.append(
+                        {
+                            "strategy": strategy.name,
+                            "title": strategy.title,
+                            "reason": strategy.description,
+                            "metadata": found.get("metadata"),
+                        }
+                    )
+            hits = [item["strategy"] for item in hit_details]
             hit_counts.update(hits)
-            if len(bars) >= 60 and security.industry:
+            if len(bars) >= 60 and sector_name:
                 amounts = [
                     float(b["amount"])
                     if b["amount"] is not None
@@ -235,15 +261,17 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
                     else None
                 )
                 pct = float(bars[-1]["close"] / bars[-20]["close"] - 1)
-                sector_samples[security.industry].append((pct, energy))
+                sector_samples[sector_name].append((pct, energy))
             if hits:
                 candidates.append(
                     {
                         "symbol": security.symbol,
                         "name": security.name,
                         "hits": hits,
+                        "strategy_details": hit_details,
                         "close": str(bars[-1]["close"]),
-                        "industry": security.industry,
+                        "industry": sector_name,
+                        "sector": security.sector or sector_name,
                         "market": market,
                         "currency": security.currency,
                     }
@@ -255,7 +283,7 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
             min(offset + len(batch), len(securities)),
             len(securities),
         )
-    sectors = Counter(c["industry"] or "未知" for c in candidates)
+    sectors = Counter(c["sector"] or c["industry"] or "未知" for c in candidates)
     rs = {}
     if index_return is not None:
         for industry, values in sector_samples.items():
@@ -302,8 +330,18 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
         run = db.get(Run, run_id)
         assert run is not None
         for c in candidates:
-            metadata = {k: c[k] for k in ["name", "industry", "market", "currency"]}
-            metadata["sector_strength"] = rs.get(c["industry"])
+            sector_key = c["sector"] or c["industry"]
+            strength = rs.get(sector_key)
+            metadata = {
+                "name": c["name"],
+                "industry": c["industry"],
+                "sector": c["sector"],
+                "market": c["market"],
+                "currency": c["currency"],
+                "sector_strength": strength,
+                "resonance_count": len(c["hits"]),
+                "strategy_details": c["strategy_details"],
+            }
             db.add(
                 ScanResult(
                     run_id=run_id,
@@ -311,14 +349,53 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
                     trade_date=target,
                     hits=c["hits"],
                     close=c["close"],
+                    resonance_count=len(c["hits"]),
+                    sector_strength=None if strength is None else Decimal(str(strength)),
                     metadata_snapshot=metadata,
                 )
             )
-        run.status, run.finished_at, run.details = (
-            "partial" if incomplete else "success",
-            now(),
-            details,
+        status = "partial" if incomplete else "success"
+        summary = {
+            "id": uid(),
+            "run_id": run_id,
+            "market": market,
+            "trade_date": target,
+            "source": source,
+            "adjustment": adjustment,
+            "status": status,
+            "market_regime": regime,
+            "benchmark": benchmark,
+            "universe_count": len(securities),
+            "scanned_count": scanned,
+            "hit_count": len(candidates),
+            "resonance_count": sum(len(c["hits"]) >= 2 for c in candidates),
+            "strategy_hit_counts": dict(hit_counts),
+            "sector_strength": rs,
+            "filter_counts": dict(Counter(s["reason"] for s in skipped)),
+            "created_at": now(),
+            "updated_at": now(),
+        }
+        db.execute(
+            upsert(
+                ScanSummary,
+                [summary],
+                [
+                    "run_id",
+                    "status",
+                    "market_regime",
+                    "benchmark",
+                    "universe_count",
+                    "scanned_count",
+                    "hit_count",
+                    "resonance_count",
+                    "strategy_hit_counts",
+                    "sector_strength",
+                    "filter_counts",
+                    "updated_at",
+                ],
+            )
         )
+        run.status, run.finished_at, run.details = (status, now(), details)
     event(
         run_id,
         "complete",

@@ -60,6 +60,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   macd_golden_cross: 'MACD 金叉趋势',
   rsi_rebound: 'RSI 超卖反弹',
   bollinger_breakout: '布林带放量突破',
+  box_breakout: '箱体突破',
 };
 
 const REGIME_LABEL: Record<string, { text: string; color: string }> = {
@@ -80,6 +81,7 @@ const DEFAULT_SCAN_STRATEGIES = [
   'macd_golden_cross',
   'rsi_rebound',
   'bollinger_breakout',
+  'box_breakout',
 ];
 
 function formatCount(value: number | null | undefined) {
@@ -356,6 +358,9 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
   const [showConditions, setShowConditions] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<'resonance' | 'sector' | 'code' | 'name'>('resonance');
+  const [industryFilter, setIndustryFilter] = useState('');
+  const [strategyFilter, setStrategyFilter] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -408,6 +413,31 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
       }))
       .sort((left, right) => (right.rsScore ?? 0) - (left.rsScore ?? 0));
   }
+
+  const industries = useMemo(
+    () => Array.from(new Set(results.map(item => item.industry).filter((item): item is string => Boolean(item)))).sort(),
+    [results],
+  );
+  const visible = useMemo(() => {
+    const filtered = results.filter(item => {
+      const strategies = parseStrategies(item.strategiesHit);
+      if (industryFilter && item.industry !== industryFilter) return false;
+      if (strategyFilter && !strategies.includes(strategyFilter)) return false;
+      return true;
+    });
+    const value = (item: ScanResult) => {
+      if (sortKey === 'sector') return item.sectorStrength ?? -999;
+      if (sortKey === 'code') return item.stockCode;
+      if (sortKey === 'name') return item.stockName || item.stockCode;
+      return item.resonanceCount;
+    };
+    return [...filtered].sort((left, right) => {
+      const a = value(left);
+      const b = value(right);
+      if (typeof a === 'number' && typeof b === 'number') return b - a;
+      return String(a).localeCompare(String(b), 'zh-CN');
+    });
+  }, [results, industryFilter, strategyFilter, sortKey]);
 
   const displayDate = summary?.scanDate || scanDate;
   const totalStockCount = summary?.totalStockCount ?? summary?.tradableCount ?? 0;
@@ -603,6 +633,34 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
           )}
 
           {tab === 'list' && (
+            <>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                排序
+                <select aria-label="排序" value={sortKey} onChange={event => setSortKey(event.target.value as typeof sortKey)} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white">
+                  <option value="resonance">共振数</option>
+                  <option value="sector">行业强度</option>
+                  <option value="code">代码</option>
+                  <option value="name">名称</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                行业
+                <select aria-label="行业过滤" value={industryFilter} onChange={event => setIndustryFilter(event.target.value)} className="max-w-[10rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white">
+                  <option value="">全部</option>
+                  {industries.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                策略
+                <select aria-label="策略过滤" value={strategyFilter} onChange={event => setStrategyFilter(event.target.value)} className="max-w-[12rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white">
+                  <option value="">全部</option>
+                  {strategyNames.map(name => <option key={name} value={name}>{STRATEGY_LABELS[name] ?? name}</option>)}
+                </select>
+              </label>
+            </>
+          )}
+
+          {tab === 'list' && (
             <label className="ml-auto flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300">
               <input
                 type="checkbox"
@@ -620,10 +678,10 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
         ) : tab === 'list' ? (
           /* Stock list */
           <div className="space-y-2">
-            {results.length === 0 && (
+            {visible.length === 0 && (
               <div className="text-center text-slate-500 py-12">无符合条件的候选股</div>
             )}
-            {results.map(r => {
+            {visible.map(r => {
               const strats = parseStrategies(r.strategiesHit);
               return (
                 <div

@@ -34,7 +34,9 @@ def rejection(security, bars: list[dict], target: date, market: str, options: Fi
         return "missing_target_bar", []
     if len(bars) < 60:
         return "insufficient_history", []
-    if options.filter_st and market == "CN" and "ST" in security.name.upper():
+    name = (security.name or "").upper()
+    flagged = bool(getattr(security, "is_st", False)) or "ST" in name
+    if options.filter_st and market == "CN" and flagged:
         return "st_stock", []
     if options.filter_suspended and bars[-1]["volume"] <= 0:
         return "suspended_or_zero_volume", []
