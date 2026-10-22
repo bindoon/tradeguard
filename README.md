@@ -18,6 +18,44 @@ uv run tradeguard serve
 
 打开 http://127.0.0.1:8188 。MySQL 8.4 只监听本机 53306，开发账号仅供本机使用。密钥写在被忽略的 `.env`，勿提交个人账户或券商凭证。前端开发可单独运行 `pnpm --dir web dev --host 127.0.0.1`，地址 5178，代理本机 8188。
 
+## 迁移
+
+结构只由 Alembic 升级，运行库地址只来自 `TRADEGUARD_DATABASE_URL`。
+
+```bash
+uv run alembic upgrade head
+```
+
+本地库是 `compose.yaml` 里的 MySQL，监听 `127.0.0.1:53306`，库名 `tradeguard`。之后改到阿里云 RDS 时只换这一条环境变量，不改代码、不把 RDS 写成源库：
+
+```bash
+# .env
+TRADEGUARD_DATABASE_URL=mysql+pymysql://USER:PASSWORD@rm-xxxx.mysql.rds.aliyuncs.com:3306/tradeguard?charset=utf8mb4
+uv run alembic upgrade head
+```
+
+`TRADEGUARD_SELECTION_SOURCE_URL` 和 `TRADEGUARD_PORTFOLIO_SOURCE_URL` 只读。连接会执行 `SET SESSION TRANSACTION READ ONLY`，语句守卫会拒绝 INSERT/UPDATE/DELETE。旧库 `mkt_bar_sync_runs`、`mkt_strategy_scan_runs` 里停在 `running` 的行会被忽略，不作为续跑锁。
+
+## 回补、每日流水线与报告
+
+`pipeline daily --market CN` 从运行库里最后一根 A 股日线之后补到最近一个已收盘交易日（上海时间 16:00 之前取前一自然日，再落到交易日）。akshare 为主、baostock 为备；切换会写入 `run_event.stage=source_fallback`，当次扫描不混用两个来源的价格。已有该来源最新 K 线的标的会跳过。证券池会更新名称、ST 标记、上市日期和行业。然后按 selection 的门槛做初筛，跑五个策略，计共振、行业强度和市场状态，并写入 `scan_summary`。
+
+第一次给某个来源建序列时，会额外回看约 550 天，供均线和 MACD 使用。这是该来源自己的前复权序列，不会把 `legacy_mysql` 的价格改标成 akshare。
+
+```bash
+uv sync --extra market
+uv run tradeguard pipeline daily --market CN
+uv run tradeguard pipeline daily --market CN --date 2026-06-26
+uv run tradeguard pipeline daily --market CN --from 2026-06-26 --to 2026-10-21
+uv run tradeguard report daily --date 2026-10-21 --market CN
+```
+
+`--date` 与 `--from/--to` 不能同时使用。显式 `--source legacy_mysql`（或其它缓存来源）只扫已有行情，不联网。`--source baostock --refresh` 则只用 baostock 做全池回补。akshare 默认 4 个并发、每次请求至少间隔 0.2 秒，可用 `TRADEGUARD_AKSHARE_WORKERS` 和 `TRADEGUARD_AKSHARE_MIN_INTERVAL` 调整。超过 6 小时仍为 running 的 `job_run` 会被标成 stale。
+
+报告是一条 JSON，包含市场状态、各策略命中数、共振最高的标的和原因、行业强度排序，以及相对前一扫描日的新增与消失。stdout 仍是外面再包一层的单条 JSON。
+
+定时任务模板在 `deploy/`，每天 03:30（Asia/Shanghai）。不要在仓库里安装它，说明见 `deploy/README.md`。
+
 ## 行情与扫描
 
 ```bash
@@ -42,7 +80,13 @@ uv run tradeguard market quality --market CN --date 2026-10-16 --source baostock
 
 五个主策略为均线金叉、MACD 金叉、RSI 反弹、布林带突破、箱体突破。扫描包含 ST、停牌、上市时间、流动性和 A 股涨跌幅过滤；参数随市场变化。缺上市日期且历史无法证明年龄时明确提示，缺基准指数时相对强度和市场环境为未知。每个批次保留输入摘要、策略版本、进度事件、过滤原因和缺口；缺行情标为 partial。
 
-控制台提供市场切换、历史扫描、扫描过程说明、行业/个股结果、K 线以及真实持仓。不会自动混用 A 股与美股数据。扫描详情图表使用该批次的来源与交易日。前端以 selection/litefront 为参考，模拟买卖已替换为真实账户展示；目前不提供回测和实盘下单。
+控制台提供市场切换、历史扫描（`/scan`）、单日结果（`/scan/:date`，可按共振、行业强度、代码、名称排序，并按行业和策略过滤）、筛选器（`/screener`）、个股 K 线与策略信号（`/stock/:code`）以及真实持仓（`/portfolio`，`/monitor` 打开同一持仓页）。不会自动混用 A 股与美股数据。扫描详情图表使用该批次的来源与交易日。信号标记只画在同一来源的已保存扫描上。前端以 selection/litefront 为参考，模拟买卖已替换为真实账户展示；目前不提供回测和实盘下单。
+
+```bash
+uv run tradeguard serve
+```
+
+浏览器打开 http://127.0.0.1:8188 。
 
 ## 真实持仓与口述更新
 

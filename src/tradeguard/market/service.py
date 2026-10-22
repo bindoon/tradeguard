@@ -10,7 +10,55 @@ from tradeguard.db.models import DailyBar, Run, Security, now
 from tradeguard.market.schemas import BarInput, currency_for
 
 
-def save_bars(bars: list[BarInput]) -> dict:
+def latest_bar_date(market: str, source: str | None = None) -> date | None:
+    with session() as db:
+        query = (
+            select(func.max(DailyBar.trade_date))
+            .join(Security, Security.symbol == DailyBar.symbol)
+            .where(Security.market == market)
+        )
+        if source:
+            query = query.where(DailyBar.source == source)
+        return db.scalar(query)
+
+
+def upsert_universe(members: list, market: str) -> int:
+    """Refresh security metadata. Missing provider fields do not erase stored values."""
+    from tradeguard.market.schemas import currency_for
+
+    if not members:
+        return 0
+    with session() as db, db.begin():
+        for item in members:
+            industry = item.industry
+            sector = item.sector or industry
+            stmt = insert(Security).values(
+                symbol=item.symbol,
+                name=item.name or item.symbol,
+                market=market,
+                currency=currency_for(item.symbol),
+                industry=industry,
+                sector=sector,
+                list_date=item.list_date,
+                is_st=bool(item.is_st),
+                security_kind=item.security_kind or "stock",
+            )
+            updates = {
+                "name": stmt.inserted.name,
+                "is_st": stmt.inserted.is_st,
+                "security_kind": stmt.inserted.security_kind,
+            }
+            if industry:
+                updates["industry"] = stmt.inserted.industry
+            if sector:
+                updates["sector"] = stmt.inserted.sector
+            if item.list_date is not None:
+                updates["list_date"] = stmt.inserted.list_date
+            db.execute(stmt.on_duplicate_key_update(**updates))
+    return len(members)
+
+
+def save_bars(bars: list[BarInput], *, record_run: bool = True) -> dict:
     if not bars:
         raise ValueError("No bars returned; empty input is not a successful sync")
     keys = [(b.symbol, b.trade_date, b.source, b.adjustment) for b in bars]
@@ -58,10 +106,13 @@ def save_bars(bars: list[BarInput]) -> dict:
             "max_date": str(max(b.trade_date for b in bars)),
             "sources": sorted({b.source for b in bars}),
         }
-        run = Run(kind="market_import", status="success", finished_at=now(), details=details)
-        db.add(run)
-        db.flush()
-        return {"run_id": run.id, **details}
+        run_id = None
+        if record_run:
+            run = Run(kind="market_import", status="success", finished_at=now(), details=details)
+            db.add(run)
+            db.flush()
+            run_id = run.id
+        return {"run_id": run_id, **details}
 
 
 def import_csv(path: Path) -> dict:

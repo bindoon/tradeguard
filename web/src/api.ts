@@ -117,6 +117,17 @@ export async function fetchStockProfile(stockCode: string): Promise<StockProfile
   return apiFetch<StockProfile>(`/api/stocks/${encodeURIComponent(stockCode)}/profile`);
 }
 
+export interface StockSignal {
+  date: string;
+  strategies: string[];
+  resonanceCount: number;
+  reasons: string[];
+}
+
+export async function fetchStockSignals(stockCode: string): Promise<StockSignal[]> {
+  return apiFetch<StockSignal[]>(`/api/stocks/${encodeURIComponent(stockCode)}/signals`);
+}
+
 // ── Stock Pool Filter API ─────────────────────────────────────────────────────
 
 /** 实时执行股票池初筛，参数与每日扫描的 filter_stock_pool 完全一致 */

@@ -4,11 +4,12 @@ import hashlib
 from datetime import timezone
 from decimal import Decimal
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from tradeguard.config import settings
 from tradeguard.db import session
 from tradeguard.db.models import Account
+from tradeguard.db.readonly import open_readonly
 from tradeguard.market.schemas import normalize_symbol
 from tradeguard.portfolio.schemas import SnapshotInput
 from tradeguard.portfolio.service import save_snapshot
@@ -29,7 +30,7 @@ def import_portfolio() -> dict:
     cfg = settings()
     if cfg.portfolio_source_url is None:
         raise ValueError("Configure TRADEGUARD_PORTFOLIO_SOURCE_URL")
-    remote_engine = create_engine(
+    remote_engine = open_readonly(
         cfg.portfolio_source_url.get_secret_value(),
         connect_args={"connect_timeout": 10, "read_timeout": 30},
     )

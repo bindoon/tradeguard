@@ -1,21 +1,67 @@
 from datetime import date, timedelta
 from typing import Any
 
+from sqlalchemy import select
+
 from tradeguard.db import session
 from tradeguard.db.locks import named_lock
-from tradeguard.db.models import Run, now
+from tradeguard.db.maintenance import retire_stale_runs
+from tradeguard.db.models import DailyBar, Run, Security, now
 from tradeguard.market.baostock import sync
 from tradeguard.market.service import quality
 from tradeguard.screening.service import scan
 
 
+def cached_trade_dates(market_code: str, source: str, start: date, end: date) -> list[date]:
+    with session() as db:
+        return list(
+            db.scalars(
+                select(DailyBar.trade_date)
+                .join(Security, Security.symbol == DailyBar.symbol)
+                .where(
+                    Security.market == market_code,
+                    DailyBar.source == source,
+                    DailyBar.adjustment == "forward",
+                    DailyBar.trade_date >= start,
+                    DailyBar.trade_date <= end,
+                )
+                .distinct()
+                .order_by(DailyBar.trade_date)
+            ).all()
+        )
+
+
+def run_cn_pipeline(**kwargs: Any) -> dict:
+    """Akshare-first A-share backfill and scan. Tests patch this attribute."""
+    from tradeguard.pipeline import run_cn_pipeline as impl
+
+    return impl(**kwargs)
+
+
 def daily(
-    target: date,
+    target: date | None = None,
     symbols: list[str] | None = None,
     source: str = "legacy_mysql",
     refresh: bool = False,
     market_code: str = "CN",
+    *,
+    start: date | None = None,
+    end: date | None = None,
 ) -> dict:
+    retire_stale_runs()
+    if start is not None or end is not None:
+        if start is None or end is None:
+            raise ValueError("--from and --to must be used together")
+        if refresh:
+            raise ValueError("Cached ranges do not download. Omit --source to backfill CN")
+        days = cached_trade_dates(market_code, source, start, end)
+        if not days:
+            raise ValueError("No cached bars in that range")
+        scans = [daily(day, symbols, source, False, market_code) for day in days]
+        status = "partial" if any(item["status"] != "success" for item in scans) else "success"
+        return {"status": status, "market": market_code, "source": source, "scans": scans}
+    if target is None:
+        raise ValueError("Cached daily runs require --date or --from/--to")
     if market_code not in {"CN", "US", "HK"}:
         raise ValueError("market must be CN, US or HK")
     if refresh and source not in {"baostock", "longbridge"}:

@@ -196,6 +196,49 @@ def safe_worker(run_id, payload):
         pass  # scan() already commits the failure and a visible terminal event.
 
 
+def stock_signals(
+    symbol: str, market: str = "CN", source: str = "", limit: int = 180
+) -> list[dict]:
+    symbol = normalize_symbol(symbol)
+    ensure_market(market)
+    chosen = source_for(market, source) if source else ""
+    with session() as db:
+        security = db.get(Security, symbol)
+        if security is None or security.market != market:
+            raise HTTPException(404, "标的不存在于当前市场")
+        rows = db.execute(
+            select(ScanResult, Run)
+            .join(Run, Run.id == ScanResult.run_id)
+            .where(ScanResult.symbol == symbol, Run.market == market, Run.kind == "scan")
+            .order_by(ScanResult.trade_date.desc(), Run.started_at.desc())
+            .limit(max(1, min(limit, 500)) * 3)
+        ).all()
+    seen: set[date] = set()
+    payload = []
+    for result, run in rows:
+        if chosen and (run.details or {}).get("source") != chosen:
+            continue
+        if result.trade_date in seen:
+            continue
+        seen.add(result.trade_date)
+        snap = result.metadata_snapshot or {}
+        payload.append(
+            {
+                "date": str(result.trade_date),
+                "strategies": result.hits,
+                "resonanceCount": result.resonance_count or len(result.hits or []),
+                "reasons": [
+                    item.get("reason") or item.get("title") or item.get("strategy")
+                    for item in (snap.get("strategy_details") or [])
+                    if isinstance(item, dict)
+                ],
+            }
+        )
+        if len(payload) >= limit:
+            break
+    return list(reversed(payload))
+
+
 class ScanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     market: str
@@ -392,13 +435,18 @@ def create_app():
                 raise HTTPException(404, "标的不存在于当前市场")
             bars = kline(symbol, market, source, 1)
             latest_bar = bars[-1] if bars else {}
+            signals = stock_signals(symbol, market, source, limit=1)
+            latest_signal = signals[-1] if signals else {}
             return {
                 "code": s.symbol,
                 "name": s.name,
                 "market": s.market,
                 "currency": s.currency,
-                "industry": s.industry,
-                "category": "stock",
+                "industry": s.sector or s.industry,
+                "sector": s.sector,
+                "isSt": bool(s.is_st),
+                "listDate": str(s.list_date) if s.list_date else None,
+                "category": s.security_kind,
                 "lastDataDate": latest_bar.get("date"),
                 "dataDays": db.scalar(
                     select(func.count())
@@ -406,8 +454,17 @@ def create_app():
                     .where(DailyBar.symbol == symbol, DailyBar.source == source_for(market, source))
                 ),
                 "latestQuote": latest_bar,
-                "latestScan": {"strategiesHit": [], "scanDate": None},
+                "latestScan": {
+                    "strategiesHit": latest_signal.get("strategies", []),
+                    "scanDate": latest_signal.get("date"),
+                    "resonanceCount": latest_signal.get("resonanceCount"),
+                    "reasons": latest_signal.get("reasons", []),
+                },
             }
+
+    @app.get("/api/stocks/{symbol}/signals")
+    def signals(symbol: str, market: str = "CN", source: str = "", limit: int = 180):
+        return stock_signals(symbol, market, source, limit)
 
     @app.get("/api/portfolio/accounts")
     def portfolio_accounts():
