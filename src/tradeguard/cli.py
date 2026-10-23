@@ -21,6 +21,8 @@ discipline = typer.Typer(no_args_is_help=True)
 research = typer.Typer(no_args_is_help=True)
 pipeline = typer.Typer(no_args_is_help=True)
 report = typer.Typer(no_args_is_help=True)
+workspace_app = typer.Typer(no_args_is_help=True)
+public_app = typer.Typer(no_args_is_help=True)
 for name, sub in [
     ("market", market),
     ("scan", scan_app),
@@ -29,6 +31,8 @@ for name, sub in [
     ("research", research),
     ("pipeline", pipeline),
     ("report", report),
+    ("workspace", workspace_app),
+    ("public", public_app),
 ]:
     app.add_typer(sub, name=name)
 
@@ -380,4 +384,79 @@ def example_snapshot():
                 "orders": [],
             },
         }
+    )
+
+
+@workspace_app.command("report")
+def workspace_report(
+    source: Annotated[str, typer.Option()], market: str = "CN", adjustment: str = "forward"
+):
+    """Private evidence bundle for an agent: candidates, position review and explicit rule checks."""
+    from tradeguard.workspace.schemas import Scope
+    from tradeguard.workspace.service import overview
+
+    output(
+        lambda: overview(
+            Scope.model_validate(
+                {"market": market.upper(), "source": source, "adjustment": adjustment}
+            )
+        )
+    )
+
+
+@workspace_app.command("refresh")
+def workspace_refresh(
+    source: Annotated[str, typer.Option()], market: str = "CN", adjustment: str = "forward"
+):
+    """Evaluate local cached observations and save deduplicated reminders. No network access."""
+    from tradeguard.workspace.schemas import Scope
+    from tradeguard.workspace.service import refresh
+
+    output(
+        lambda: refresh(
+            Scope.model_validate(
+                {"market": market.upper(), "source": source, "adjustment": adjustment}
+            )
+        )
+    )
+
+
+@workspace_app.command("watch")
+def workspace_watch(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.workspace.schemas import WatchInput
+    from tradeguard.workspace.service import add_watch
+
+    output(lambda: add_watch(WatchInput.model_validate(load(file))))
+
+
+@workspace_app.command("alert")
+def workspace_alert(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.workspace.schemas import AlertInput
+    from tradeguard.workspace.service import add_alert
+
+    output(lambda: add_alert(AlertInput.model_validate(load(file))))
+
+
+@public_app.command("export")
+def public_export(
+    date: Annotated[str, typer.Option()],
+    source: Annotated[str, typer.Option()],
+    symbol: Annotated[list[str], typer.Option()],
+    output_dir: Annotated[Path, typer.Option("--output")],
+    market: str = "CN",
+    adjustment: str = "forward",
+):
+    """Build a standalone public market-only site in a fresh directory; never upload anything."""
+    from tradeguard.public_site.export import export_site
+    from tradeguard.workspace.schemas import Scope
+
+    output(
+        lambda: export_site(
+            Scope.model_validate(
+                {"market": market.upper(), "source": source, "adjustment": adjustment}
+            ),
+            day(date),
+            symbol,
+            output_dir,
+        )
     )

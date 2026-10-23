@@ -5,6 +5,7 @@
 - `skills/stock-analyst/references/data-sources.md` comes from the corresponding myskills source directory. Other skills are generalized for this project and reference the new CLI.
 - `/Users/bouda/work/selection` revision `6dfbe07` supplied workflow context. The web/ frontend was copied from litefront at revision 6dfbe070 and adapted to TradeGuard APIs. Tradability filtering and sector strength are implemented in Python; live backtest is not ported.
 - The package is independently implemented around Python, SQLAlchemy and Alembic; ruyi supplied engineering context, not runtime code.
+- [OpenStock](https://github.com/Open-Dev-Society/OpenStock), revision `855ca6af33ae0b86f8835ecda6c31707f4ec3891`, informed the 2026-10-23 watchlist, search, tabs and chart-preference interaction design. No OpenStock source code or assets were copied; its AGPL-3.0 code is not included.
 
 No repository license has been selected. Keep the repository private until source rights and the intended license are settled. This document records provenance; it does not grant third-party rights.
 

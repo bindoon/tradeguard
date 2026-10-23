@@ -36,6 +36,8 @@ from tradeguard.screening.availability import (
 )
 from tradeguard.screening.filters import FilterOptions
 from tradeguard.screening.service import create_run, scan
+from tradeguard.workspace import service as workspace
+from tradeguard.workspace.schemas import AlertInput, Scope, WatchInput
 
 MARKETS = {"CN": ("A 股", "CNY"), "US": ("美股", "USD"), "HK": ("港股", "HKD")}
 EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tradeguard-scan")
@@ -299,6 +301,12 @@ class AccountInput(BaseModel):
     label: str
 
 
+class CheckInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: str
+    intent: dict
+
+
 def create_app():
     app = FastAPI(title="TradeGuard local console")
 
@@ -337,6 +345,70 @@ def create_app():
     @app.get("/api/context")
     def context(market: str = "CN"):
         return context_data(market)
+
+    @app.get("/api/workspace")
+    def workspace_overview(
+        market: str, source: str, adjustment: str = "forward", target: date | None = None
+    ):
+        return workspace.overview(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment}),
+            target,
+        )
+
+    @app.get("/api/search")
+    def search_stocks(market: str, source: str, q: str = "", adjustment: str = "forward"):
+        return workspace.search(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment}), q
+        )
+
+    @app.get("/api/watchlist")
+    def watchlist(market: str, source: str, adjustment: str = "forward"):
+        return workspace.watches(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment})
+        )
+
+    @app.post("/api/watchlist")
+    def watch_add(payload: WatchInput):
+        return workspace.add_watch(payload)
+
+    @app.delete("/api/watchlist/{identifier}")
+    def watch_remove(identifier: str):
+        return workspace.remove_watch(identifier)
+
+    @app.get("/api/alerts")
+    def alert_list(market: str, source: str, adjustment: str = "forward"):
+        return workspace.alerts(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment})
+        )
+
+    @app.post("/api/alerts")
+    def alert_add(payload: AlertInput):
+        return workspace.add_alert(payload)
+
+    @app.delete("/api/alerts/{identifier}")
+    def alert_cancel(identifier: str):
+        return workspace.cancel_alert(identifier)
+
+    @app.get("/api/notifications")
+    def notification_list(market: str, source: str, adjustment: str = "forward"):
+        return workspace.inbox(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment})
+        )
+
+    @app.post("/api/notifications/refresh")
+    def notifications_refresh(payload: Scope):
+        return workspace.refresh(payload)
+
+    @app.post("/api/notifications/{identifier}/read")
+    def notification_read(identifier: str):
+        return workspace.mark_read(identifier)
+
+    @app.post("/api/discipline/check")
+    def check_trade(payload: CheckInput):
+        from tradeguard.discipline.schemas import Intent
+        from tradeguard.discipline.service import check
+
+        return check(Intent.model_validate(payload.intent), payload.profile_id)
 
     @app.get("/api/health")
     def health():

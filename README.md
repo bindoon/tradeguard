@@ -128,3 +128,49 @@ pnpm --dir web build
 ```
 
 集成测试使用独立临时 MySQL 数据库，通过 `TRADEGUARD_TEST_ADMIN_URL` 配置测试管理员；不会清空应用库。数据库结构由 SQLAlchemy + Alembic 管理。架构见 [docs/architecture/README.md](docs/architecture/README.md)，来源与授权边界见 [docs/provenance.md](docs/provenance.md)。线上发布、鉴权、多用户及数据上传尚未实现，HTTP 控制台仅供本机运行。
+
+## 个人工作台、自选与提醒
+
+首页现在展示当前市场/来源/复权的最近扫描、候选、与前次扫描的变化、行业强度、个人自选、持仓复核与最近纪律检查。持仓复核使用最近保存的真实观察和该来源收盘价：触及已记录退出价格时展示依据；缺行情、快照过期或保护单证据不足时提示先补证据。它不是完整卖出决策引擎，不会自动下单，也不会把计划标成券商挂单。
+
+- `/watchlist`：从扫描或个股页加入，保存观察原因和关联批次；自选独立于真实持仓。
+- 全局搜索：`⌘K` / `Ctrl+K` 搜索本地证券。股票标签在本浏览器保留，带有各自市场、来源、复权和历史截止日。
+- 个股页：记住日线范围、均线、布林带和信号开关；用个人明确选择的规则版本、账户和拟交易做买入/加仓纪律检查。没有规则时提示导入，不套用示例阈值。
+- `/alerts`：创建价格条件后，可手动评估已保存日线，或运行下面的 CLI。价格条件仅使用创建当日及之后的观察；旧缓存不会触发新条件。新信号和过期快照也可形成去重提醒。提醒只在手动/命令评估时产生，不声称全天候盘中监控。
+
+```bash
+uv run tradeguard workspace report --market CN --source baostock
+uv run tradeguard workspace refresh --market CN --source baostock
+uv run tradeguard workspace watch --file private/watch.json
+uv run tradeguard workspace alert --file private/alert.json
+```
+
+`workspace report` 是给 Agent 做个人研究与买卖讨论的私有证据包，包含候选、持仓复核、显式个人规则与近期检查。不得当作公共站数据源。`workspace refresh` 不联网，适合由你自己的本地调度在日线任务之后显式执行；不会安装任何定时任务。
+
+自选 JSON 形如 `{"market":"CN","source":"baostock","adjustment":"forward","symbol":"600000.SH","reason":"用户自己填写的观察依据"}`；价格条件将 `reason` 换为 `"condition":"above","target_price":"10.50"`（或 `below`）。这些是输入格式，不是交易推荐。
+
+## 仅用 Docker 在本地部署
+
+全新环境可直接从空库启动（首次构建需要访问镜像源和包仓库）：
+
+```bash
+docker compose -f compose.yaml -f deploy/compose.local.yaml up -d --build --wait
+```
+
+访问 http://127.0.0.1:8188 。镜像启动先执行 Alembic，再启动控制台；MySQL 持久卷保存数据，容器内不含个人 `.env`、账户数据或导入源。默认是空证券库和空账户，需按自己的使用范围导入/同步。宿主机仍只开放 loopback；不要把账户控制台直接接到公网域名。如果该端口已有宿主进程，请先停止旧的控制台再启动容器。
+
+券商配置由你在本地显式添加到服务环境；默认容器不配置券商凭证。富途 OpenD 集成使用上面的宿主机安装路径，或自行安装对应可选依赖并配置网关。详细部署与公开边界见 [部署文档](docs/architecture/deployment.md)。
+
+## 公共展示包（与个人控制台分离）
+
+为后续 `stock.zhiyu.hk` 展示准备了独立静态导出。选择你有权公开的数据、明确标的与交易日，输出目录必须为空：
+
+```bash
+uv run tradeguard public export --market CN --source baostock --date 2026-10-22 \
+  --symbol 600000.SH --symbol 600519.SH --output dist/public-2026-10-22
+python3 -m http.server 8191 --bind 127.0.0.1 --directory dist/public-2026-10-22
+```
+
+示例日期需要替换成已存行情日。导出文件只有独立的 `index.html`：白名单字段包含公开证券名称、行业、同源历史行情、当日策略名称与扫描计数；不含账户、持仓、条件单、自选/研究备注、个人规则、原话或内部运行日志。页面保留日期、来源、复权和缺口，提供项目关注与本地部署入口；不调用个人 API，也不需要运行 Python/MySQL。当前只提供包和本地预览，没有自动上传或修改线上站点。
+
+源码公开前，仍需解决 [provenance](docs/provenance.md) 中记录的来源权利和项目许可证。当前改动未复制 OpenStock 代码，也未修改仓库可见性。

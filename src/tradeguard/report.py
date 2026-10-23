@@ -80,12 +80,16 @@ def _ranking(summary: ScanSummary, rows: list[ScanResult]) -> list[dict[str, Any
     return ranked
 
 
-def daily_report(target: date, market: str = "CN", source: str | None = None) -> dict[str, Any]:
+def daily_report(
+    target: date, market: str = "CN", source: str | None = None, adjustment: str = "forward"
+) -> dict[str, Any]:
     if market not in {"CN", "US", "HK"}:
         raise ValueError("market must be CN, US or HK")
     with session() as db:
         query = select(ScanSummary).where(
-            ScanSummary.market == market, ScanSummary.trade_date == target
+            ScanSummary.market == market,
+            ScanSummary.trade_date == target,
+            ScanSummary.adjustment == adjustment,
         )
         if source:
             query = query.where(ScanSummary.source == source)
@@ -137,6 +141,8 @@ def daily_report(target: date, market: str = "CN", source: str | None = None) ->
         if previous is None
         else summary.resonance_count - previous.resonance_count,
         "hit_delta": None if previous is None else summary.hit_count - previous.hit_count,
+        "new_symbol_count": len(new_symbols),
+        "dropped_symbol_count": len(dropped_symbols),
         "new_symbols": new_symbols[:20],
         "dropped_symbols": dropped_symbols[:20],
     }

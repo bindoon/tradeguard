@@ -1,3 +1,4 @@
+import WorkspaceChrome from "./WorkspaceChrome";
 import {
   LayoutDashboard,
   Star,
@@ -6,6 +7,7 @@ import {
   Wallet,
   SlidersHorizontal,
 } from "lucide-react";
+import { openPath, scopedPath } from "./MarketContext";
 import { MarketBar } from "./MarketContext";
 import { ReactNode, useEffect, useState } from "react";
 
@@ -68,7 +70,23 @@ export default function SelectionShell({
       subtitle: "候选、持仓复核与买卖检查",
       badge: "TODAY",
       accent: "emerald",
-      onClick: onHome,
+      onClick: () => openPath(scopedPath("/")),
+    },
+    {
+      key: "watchlist" as const,
+      title: "我的自选",
+      subtitle: "跟进观察原因与策略信号",
+      badge: "WATCH",
+      accent: "cyan",
+      onClick: () => openPath(scopedPath("/watchlist")),
+    },
+    {
+      key: "alerts" as const,
+      title: "提醒记录",
+      subtitle: "价格条件与证据待更新",
+      badge: "INBOX",
+      accent: "blue",
+      onClick: () => openPath(scopedPath("/alerts")),
     },
     {
       key: "scan" as const,
@@ -277,6 +295,7 @@ export default function SelectionShell({
         <main className="min-w-0 flex-1 overflow-x-hidden lg:-mr-5 lg:min-h-0 lg:overflow-y-auto lg:pr-5 xl:-mr-6 xl:pr-6">
           <div className="w-full space-y-4 pr-1">
             <MarketBar />
+            <WorkspaceChrome key={location.pathname + location.search} />
             {children}
           </div>
         </main>

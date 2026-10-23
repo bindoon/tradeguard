@@ -1,163 +1,451 @@
-import { MarketBar, useMarket } from './MarketContext';
-interface HomePageProps {
-  onScan?: () => void;
-  onScreener?: () => void;
-  onPortfolio?: () => void;
-}
-
-export default function HomePage({ onScan, onScreener, onPortfolio }: HomePageProps) {
-  const {info, market} = useMarket();
-  const menuItems = [
-    {
-      title: '每日扫描',
-      subtitle: '查看每日扫描与共振结果',
-      badge: 'SCAN',
-      accent: 'emerald',
-      onClick: onScan,
-    },
-    {
-      title: '我的持仓',
-      subtitle: '查看真实账户、条件单与更新时间',
-      badge: 'BOOK',
-      accent: 'blue',
-      onClick: onPortfolio,
-    },
-    {
-      title: '股票筛选器',
-      subtitle: '按当前扫描同源条件筛选股票',
-      badge: 'POOL',
-      accent: 'cyan',
-      onClick: onScreener,
-    },
-  ].filter(item => item.onClick);
-
-  const accentClasses: Record<string, string> = {
-    emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-400/60 hover:bg-emerald-500/14',
-    cyan: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/14',
-    blue: 'border-blue-500/30 bg-blue-500/10 text-blue-300 hover:border-blue-400/60 hover:bg-blue-500/14',
-    amber: 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60 hover:bg-amber-500/14',
-  };
-
+import { useEffect, useState } from "react";
+import SelectionShell, { SelectionNavProps } from "./SelectionShell";
+import { openPath, scopedPath, useMarket } from "./MarketContext";
+import {
+  decisionLabel,
+  loadWorkspace,
+  refreshNotices,
+  regimeLabel,
+  Workspace,
+} from "./workspaceApi";
+import { STRATEGY_MAP } from "./strategies";
+import WatchButton from "./WatchButton";
+export default function HomePage(props: SelectionNavProps) {
+  const { market, source, adjustment } = useMarket();
+  const [data, setData] = useState<Workspace | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setError("");
+    setLoading(true);
+    if (!source) {
+      setLoading(false);
+      return;
+    }
+    loadWorkspace()
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [market, source, adjustment, tick]);
+  const report = data?.report;
+  const currency = market === "CN" ? "CNY" : market === "US" ? "USD" : "HKD";
+  const changes = report?.changes_vs_previous_day;
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.16),transparent_28%),linear-gradient(135deg,#020617_0%,#0f172a_42%,#111827_100%)] px-3 py-3 sm:px-4 sm:py-4 lg:h-screen lg:overflow-hidden lg:px-5 lg:py-4 xl:px-6 xl:py-5">
-      <div className="mx-auto flex min-h-[calc(100vh-1.5rem)] w-full min-w-0 flex-col gap-3 lg:h-full lg:min-h-0 lg:flex-row lg:gap-4 xl:gap-5">
-        <aside className="w-full shrink-0 lg:w-[248px] xl:w-[264px] 2xl:w-[276px]">
-          <div className="overflow-hidden rounded-[28px] border border-white/10 bg-slate-950/70 shadow-2xl shadow-black/30 backdrop-blur lg:flex lg:h-full lg:flex-col">
-            <div className="border-b border-white/10 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/60 p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 shadow-lg shadow-emerald-500/20">
-                  <svg className="h-5 w-5 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l5-5 4 4 7-8" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/80">TradeGuard Console</div>
-                  <h1 className="mt-1 text-xl font-semibold tracking-tight text-white">股票研究与真实持仓</h1>
-                </div>
-              </div>
-
-              <p className="text-sm leading-6 text-slate-300">
-                按市场检查行情、执行扫描，并查看真实账户与条件单。
-              </p>
+    <SelectionShell {...props} currentSection="home">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs tracking-widest text-emerald-300">
+            我的研究与决策
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-white">每日工作台</h1>
+          <p className="mt-2 text-sm text-slate-400">
+            先处理持仓，再筛选候选；每项判断都保留来源和证据时间。
+          </p>
+        </div>
+        <button
+          className="tg-button"
+          disabled={!source || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await refreshNotices();
+              setTick((t) => t + 1);
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "正在评估…" : "刷新缓存提醒"}
+        </button>
+      </header>
+      {loading && <p className="tg-muted">正在整理当前市场工作台…</p>}
+      {error && (
+        <p role="alert" className="tg-panel text-red-300">
+          {error}
+          <button
+            className="ml-4 underline"
+            onClick={() => setTick((t) => t + 1)}
+          >
+            重试
+          </button>
+        </p>
+      )}
+      {!loading && !source && (
+        <section className="tg-panel">
+          <h2 className="tg-title">从本地行情开始</h2>
+          <p className="tg-muted">
+            当前市场尚无行情来源。通过 CLI
+            导入或同步明确标的后，可查看扫描、自选和图表。真实账户仍可单独查看。
+          </p>
+          <button className="tg-button" onClick={props.onPortfolio}>
+            查看真实账户
+          </button>
+        </section>
+      )}
+      {source && !loading && !error && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              [
+                "最近扫描",
+                report?.trade_date || "尚无扫描",
+                report
+                  ? `${report.source} · ${report.status === "success" ? "完整" : "部分完成"}`
+                  : "选择扫描日期后执行缓存扫描",
+              ],
+              [
+                "市场状态",
+                report
+                  ? regimeLabel[report.market_regime] || "证据不足"
+                  : "未知",
+                "缺少基准时保持未知",
+              ],
+              [
+                "策略命中 / 共振",
+                report
+                  ? `${report.counts.hits} / ${report.counts.resonance}`
+                  : "—",
+                "扫描候选，不直接等于买入建议",
+              ],
+              [
+                "持仓待处理",
+                data
+                  ? String(
+                      data.position_reviews.filter(
+                        (r) => r.decision !== "observe",
+                      ).length,
+                    )
+                  : "—",
+                "过期观察、退出复核与证据缺口",
+              ],
+            ].map(([label, value, note]) => (
+              <section className="tg-panel" key={label}>
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className="my-3 text-2xl font-semibold text-white">
+                  {value}
+                </p>
+                <p className="text-xs leading-5 text-slate-500">{note}</p>
+              </section>
+            ))}
+          </div>
+          <section className="tg-panel">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="tg-title">先看我的持仓 · 买卖复核</h2>
+              <button
+                className="text-sm text-cyan-300"
+                onClick={props.onPortfolio}
+              >
+                全部账户 →
+              </button>
             </div>
-
-            <nav className="space-y-2 p-3">
-              {menuItems.map(item => (
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              根据当前持仓观察与已记录的退出计划复核。现金和资产按账户、币种查看；不合并不同币种。日线收盘触及计划不证明券商已成交。
+            </p>
+            {!data?.position_reviews.length ? (
+              <p className="tg-muted">
+                当前市场没有已保存的股票持仓，可先导入真实账户。
+              </p>
+            ) : (
+              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                {data.position_reviews.map((r, i) => (
+                  <article
+                    key={`${r.account_label}-${r.symbol}-${i}`}
+                    className="rounded-xl border border-slate-700 bg-slate-950/50 p-4"
+                  >
+                    <div className="flex flex-wrap justify-between gap-2">
+                      <button
+                        disabled={!r.symbol}
+                        onClick={() =>
+                          r.symbol &&
+                          openPath(
+                            scopedPath(
+                              "/stock/" + encodeURIComponent(r.symbol),
+                            ),
+                          )
+                        }
+                        className="font-semibold text-slate-100"
+                      >
+                        {r.name || r.symbol || r.account_label}
+                        {r.symbol && (
+                          <span className="ml-2 text-xs text-slate-500">
+                            {r.symbol} · {r.account_label}
+                          </span>
+                        )}
+                      </button>
+                      <span
+                        className={`text-xs ${r.decision === "review_exit" ? "text-amber-300" : r.decision === "needs_input" ? "text-orange-300" : "text-slate-400"}`}
+                      >
+                        {decisionLabel[r.decision]}
+                      </span>
+                    </div>
+                    {r.close && (
+                      <p className="mt-2 text-xs text-slate-400">
+                        {r.price_date} 缓存收盘 {r.close} {r.currency} ·
+                        持仓观察{" "}
+                        {r.observed_at
+                          ? new Date(r.observed_at).toLocaleString("zh-CN")
+                          : "未知"}
+                      </p>
+                    )}
+                    <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-400">
+                      {r.reasons.map((reason) => (
+                        <li key={reason}>· {reason}</li>
+                      ))}
+                    </ul>
+                    {r.symbol && (
+                      <button
+                        className="mt-3 text-xs text-cyan-300"
+                        onClick={() =>
+                          openPath(
+                            scopedPath(
+                              "/stock/" + encodeURIComponent(r.symbol!),
+                            ),
+                          )
+                        }
+                      >
+                        查看图表、计划与买入检查 →
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
+            <section className="tg-panel">
+              <div className="flex justify-between">
+                <h2 className="tg-title">今日观察 · 策略候选</h2>
                 <button
-                  key={item.title}
-                  onClick={item.onClick}
-                  className={`w-full rounded-2xl border px-3.5 py-3 text-left transition-all ${accentClasses[item.accent]}`}
+                  className="text-sm text-cyan-300"
+                  onClick={() =>
+                    openPath(
+                      scopedPath(report ? "/scan/" + report.run_id : "/scan"),
+                    )
+                  }
                 >
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-white">{item.title}</span>
-                    <span className="rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em]">
-                      {item.badge}
+                  扫描明细 →
+                </button>
+              </div>
+              {!report ? (
+                <p className="tg-muted">
+                  本市场、来源和复权尚无扫描结果。可以在每日扫描中选择已保存行情执行。
+                </p>
+              ) : !report.top_resonance.length ? (
+                <p className="tg-muted">本次扫描没有策略命中。</p>
+              ) : (
+                <div className="mt-3 divide-y divide-slate-800">
+                  {report.top_resonance.slice(0, 8).map((p) => (
+                    <article key={p.symbol} className="py-4">
+                      <div className="flex flex-wrap justify-between gap-3">
+                        <button
+                          className="text-left font-semibold text-slate-100"
+                          onClick={() =>
+                            openPath(
+                              scopedPath(
+                                "/stock/" + encodeURIComponent(p.symbol),
+                                { endDate: report.trade_date },
+                              ),
+                            )
+                          }
+                        >
+                          {p.name || p.symbol}{" "}
+                          <span className="text-xs font-normal text-slate-500">
+                            {p.symbol} · {p.close} {currency}
+                          </span>
+                        </button>
+                        <span className="text-sm text-emerald-300">
+                          共振 {p.resonance_count}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400">
+                        {p.strategies_hit
+                          .map((s) => STRATEGY_MAP[s]?.title || s)
+                          .join(" · ")}
+                      </p>
+                      {p.reasons[0] && (
+                        <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
+                          {p.reasons[0]}
+                        </p>
+                      )}
+                      <div className="mt-3">
+                        <WatchButton symbol={p.symbol} runId={report.run_id} />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+            <div className="space-y-4">
+              <section className="tg-panel">
+                <div className="flex justify-between">
+                  <h2 className="tg-title">我的自选</h2>
+                  <button
+                    className="text-sm text-cyan-300"
+                    onClick={() => openPath(scopedPath("/watchlist"))}
+                  >
+                    管理 →
+                  </button>
+                </div>
+                {!data?.watchlist.length ? (
+                  <p className="tg-muted">
+                    从候选或个股页加入自选，记录为什么关注。
+                  </p>
+                ) : (
+                  data.watchlist.slice(0, 5).map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() =>
+                        openPath(
+                          scopedPath("/stock/" + encodeURIComponent(w.symbol)),
+                        )
+                      }
+                      className="mt-3 block w-full rounded-lg bg-slate-950/50 p-3 text-left text-sm text-slate-200"
+                    >
+                      {w.name || w.symbol}
+                      <span className="float-right text-xs text-slate-400">
+                        {w.close || "暂无价格"}
+                      </span>
+                      <p className="mt-2 truncate text-xs text-slate-500">
+                        {w.reason || "尚未填写观察原因"}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </section>
+              <section className="tg-panel">
+                <div className="flex justify-between">
+                  <h2 className="tg-title">待处理提醒</h2>
+                  <button
+                    className="text-sm text-cyan-300"
+                    onClick={() => openPath(scopedPath("/alerts"))}
+                  >
+                    查看 →
+                  </button>
+                </div>
+                {!data?.notifications.some((n) => !n.read) ? (
+                  <p className="tg-muted">
+                    暂无未读提醒。点击刷新评估已保存的行情与快照。
+                  </p>
+                ) : (
+                  data.notifications
+                    .filter((n) => !n.read)
+                    .slice(0, 5)
+                    .map((n) => (
+                      <p
+                        key={n.id}
+                        className="mt-3 border-l-2 border-amber-400/50 pl-3 text-sm leading-6 text-slate-300"
+                      >
+                        {n.title}
+                      </p>
+                    ))
+                )}
+              </section>
+            </div>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <section className="tg-panel">
+              <h2 className="tg-title">与前一次同源扫描相比</h2>
+              {!changes?.previous_date ? (
+                <p className="tg-muted">暂无同来源、同复权的可比历史。</p>
+              ) : (
+                <>
+                  <p className="mt-3 text-xs text-slate-500">
+                    {changes.previous_date} → {report?.trade_date} · {source}
+                  </p>
+                  <p className="mt-3 text-sm text-slate-300">
+                    新增命中 {changes.new_symbol_count} · 消失{" "}
+                    {changes.dropped_symbol_count} · 命中变化{" "}
+                    {changes.hit_delta}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {changes.new_symbols.slice(0, 8).map((p) => (
+                      <button
+                        className="tg-tab text-emerald-300"
+                        key={p.symbol}
+                        onClick={() =>
+                          openPath(
+                            scopedPath(
+                              "/stock/" + encodeURIComponent(p.symbol),
+                            ),
+                          )
+                        }
+                      >
+                        + {p.name || p.symbol}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    扫描覆盖不同或部分完成时，新增/消失也可能由数据缺口造成。
+                  </p>
+                </>
+              )}
+            </section>
+            <section className="tg-panel">
+              <h2 className="tg-title">行业强度</h2>
+              {!report?.sector_strength_ranking.length ? (
+                <p className="tg-muted">暂无行业记录。</p>
+              ) : (
+                report.sector_strength_ranking.slice(0, 6).map((s) => (
+                  <div
+                    className="mt-3 flex justify-between gap-3 text-sm"
+                    key={s.sector}
+                  >
+                    <span className="truncate text-slate-300">{s.sector}</span>
+                    <span className="shrink-0 text-slate-400">
+                      {s.strength === null ? "强度未知" : s.strength.toFixed(2)}{" "}
+                      · {s.hit_count} 命中
                     </span>
                   </div>
-                  <p className="text-xs leading-5 text-slate-300">{item.subtitle}</p>
-                </button>
-              ))}
-            </nav>
-
-            <div className="border-t border-white/10 px-4 py-3">
-              <p className="text-xs leading-5 text-slate-500">
-                本系统仅用于研究和流程辅助，不构成任何投资建议。
+                ))
+              )}
+            </section>
+          </div>
+          <section className="tg-panel">
+            <h2 className="tg-title">最近的个人纪律检查</h2>
+            {!data?.recent_checks.length ? (
+              <p className="tg-muted">
+                打开个股页，选择明确的个人规则版本和账户，填写拟交易后检查。没有默认替你选定的个人纪律。
               </p>
-            </div>
-          </div>
-        </aside>
-
-        <main className="min-w-0 flex-1 overflow-x-hidden lg:-mr-5 lg:min-h-0 lg:overflow-y-auto lg:pr-5 xl:-mr-6 xl:pr-6">
-          <div className="grid gap-4 pr-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.72fr)] xl:gap-5 2xl:grid-cols-[minmax(0,1.75fr)_minmax(300px,0.65fr)]">
-            <div className="xl:col-span-2"><MarketBar /></div>
-            <section className="overflow-hidden rounded-[30px] border border-white/10 bg-slate-950/60 shadow-2xl shadow-black/25 backdrop-blur">
-              <div className="border-b border-white/10 bg-[linear-gradient(135deg,rgba(16,185,129,0.2),rgba(15,23,42,0.8)_45%,rgba(14,165,233,0.12))] px-6 py-8 sm:px-8 sm:py-10">
-                <div className="mb-4 inline-flex items-center rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">
-                  Daily Scan Workflow
+            ) : (
+              data.recent_checks.slice(0, 5).map((c) => (
+                <div
+                  key={c.id}
+                  className="mt-3 flex flex-wrap justify-between gap-2 text-sm text-slate-300"
+                >
+                  <button
+                    onClick={() =>
+                      openPath(
+                        scopedPath("/stock/" + encodeURIComponent(c.symbol)),
+                      )
+                    }
+                  >
+                    {c.symbol}
+                  </button>
+                  <span>
+                    {decisionLabel[c.result.decision] || c.result.decision} ·{" "}
+                    {new Date(c.created_at).toLocaleString("zh-CN")}
+                  </span>
                 </div>
-              </div>
-
-              <div className="grid gap-4 p-6 sm:grid-cols-3 sm:p-8">
-                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-                  <div className="text-xs uppercase tracking-[0.2em] text-emerald-200/80">Strategies</div>
-                  <div className="mt-3 text-4xl font-semibold text-white">5</div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">当前纳入每日共振扫描的核心策略数量。</p>
-                </div>
-                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
-                  <div className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Cadence</div>
-                  <div className="mt-3 text-4xl font-semibold text-white">Daily</div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">默认扫描已有缓存，手动启动后可查看每个执行阶段。</p>
-                </div>
-                <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
-                  <div className="text-xs uppercase tracking-[0.2em] text-blue-200/80">Coverage</div>
-                  <div className="mt-3 text-4xl font-semibold text-white">{info?.label || market}</div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">市场独立记录交易日、币种、股票池和扫描历史。</p>
-                </div>
-              </div>
-            </section>
-
-            <section className="space-y-4 xl:space-y-6">
-              <div className="rounded-[28px] border border-white/10 bg-slate-950/60 p-6 shadow-2xl shadow-black/25 backdrop-blur sm:p-7">
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Workspace Flow</div>
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-                    <div className="text-sm font-semibold text-white">01. 更新数据</div>
-                    <div className="mt-1 text-sm leading-6 text-slate-300">确认当前市场的数据来源和缓存截止日，再决定是否更新。</div>
-                  </div>
-                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-                    <div className="text-sm font-semibold text-white">02. 执行扫描</div>
-                    <div className="mt-1 text-sm leading-6 text-slate-300">初筛、五策略打标、行业汇总；保存每次执行和跳过原因。</div>
-                  </div>
-                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-                    <div className="text-sm font-semibold text-white">03. 前端查看</div>
-                    <div className="mt-1 text-sm leading-6 text-slate-300">查看扫描明细、行情图表与真实持仓；条件单保留人工或券商来源。</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[28px] border border-white/10 bg-slate-950/60 p-6 shadow-2xl shadow-black/25 backdrop-blur sm:p-7">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-400">System Focus</div>
-                    <h3 className="mt-2 text-xl font-semibold text-white">当前系统重点</h3>
-                  </div>
-                  <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">Daily Flow</div>
-                </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-                    <div className="text-sm font-semibold text-white">股票池与扫描</div>
-                    <div className="mt-1 text-sm leading-6 text-slate-300">查看每日命中策略、共振数量、行业分布与过程记录。</div>
-                  </div>
-                  <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
-                    <div className="text-sm font-semibold text-white">持仓与监控</div>
-                    <div className="mt-1 text-sm leading-6 text-slate-300">按账户和币种查看真实持仓、已记录止盈止损及观察时间。</div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
-        </main>
-      </div>
-    </div>
+              ))
+            )}
+          </section>
+        </>
+      )}
+    </SelectionShell>
   );
 }

@@ -1,0 +1,35 @@
+name: Local app checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: tradeguard_dev_root
+        ports:
+          - 53306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptradeguard_dev_root --silent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install uv==0.9.5
+      - run: npm install --global pnpm@9.15.9
+      - run: uv sync --frozen
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src/tradeguard
+      # Build first: Vite replaces dist/assets, which FastAPI mounts during tests.
+      - run: pnpm --dir web build
+      - run: uv run pytest -q

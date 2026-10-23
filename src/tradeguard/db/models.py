@@ -160,3 +160,45 @@ class RunEvent(Base):
     message: Mapped[str] = mapped_column(Text)
     completed: Mapped[int | None]
     total: Mapped[int | None]
+
+
+class WatchItem(Base):
+    __tablename__ = "watch_item"
+    __table_args__ = (UniqueConstraint("symbol", "source", "adjustment", name="uq_watch_scope"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    symbol: Mapped[str] = mapped_column(ForeignKey("security.symbol"))
+    market: Mapped[str] = mapped_column(String(8), index=True)
+    source: Mapped[str] = mapped_column(String(40))
+    adjustment: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    scan_run_id: Mapped[str | None] = mapped_column(ForeignKey("job_run.id"))
+    last_signal_run_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
+class PriceAlert(Base):
+    __tablename__ = "price_alert"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    symbol: Mapped[str] = mapped_column(ForeignKey("security.symbol"))
+    market: Mapped[str] = mapped_column(String(8), index=True)
+    source: Mapped[str] = mapped_column(String(40))
+    adjustment: Mapped[str] = mapped_column(String(16))
+    condition: Mapped[str] = mapped_column(String(8))
+    target_price: Mapped[Decimal] = mapped_column(Numeric(24, 8))
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
+class Notification(Base):
+    __tablename__ = "notification"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_key: Mapped[str] = mapped_column(String(64), unique=True)
+    market: Mapped[str] = mapped_column(String(8), index=True)
+    source: Mapped[str] = mapped_column(String(40))
+    adjustment: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(30))
+    symbol: Mapped[str | None] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(200))
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON)
+    read: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)

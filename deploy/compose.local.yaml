@@ -1,0 +1,18 @@
+services:
+  console:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8188:8188"
+    environment:
+      TRADEGUARD_DATABASE_URL: mysql+pymysql://tradeguard:tradeguard@mysql:3306/tradeguard?charset=utf8mb4
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8188/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
