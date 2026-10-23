@@ -90,3 +90,14 @@
     width: 100% !important;
   }
 }
+
+@layer components {
+  .tg-panel { @apply rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5; }
+  .tg-input { @apply rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none; }
+  .tg-button { @apply rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-emerald-400/70 hover:text-white disabled:cursor-wait disabled:opacity-40; }
+  .tg-primary { @apply rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40; }
+  .tg-tab { @apply rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300; }
+  .tg-muted { @apply py-4 text-sm leading-6 text-slate-400; }
+  .tg-title { @apply text-lg font-semibold text-white; }
+  button:focus-visible, a:focus-visible { @apply outline outline-2 outline-offset-2 outline-emerald-400; }
+}

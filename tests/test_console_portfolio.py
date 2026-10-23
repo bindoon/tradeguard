@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from test_discipline import inputs
 
 from tradeguard.console import create_app
-from tradeguard.db.models import now
+from tradeguard.db import session
+from tradeguard.db.models import Run, now
 from tradeguard.market.schemas import BarInput
 from tradeguard.market.service import import_csv, save_bars
 from tradeguard.portfolio.schemas import ManualPatch, Position, StopOrder
@@ -49,6 +50,44 @@ def test_console_market_isolation_and_historical_chart(database):
     us = client.get("/api/context?market=US").json()
     assert us["currency"] == "USD" and us["security_count"] == 1
     assert client.get("/api/context?market=INVALID").status_code == 422
+
+
+def test_console_scans_isolate_source_and_adjustment_before_selecting_date(database):
+    day = date(2026, 1, 20)
+    with session() as db, db.begin():
+        runs = [
+            Run(
+                kind="scan",
+                market="CN",
+                market_date=day,
+                status="success",
+                started_at=now() + timedelta(seconds=index),
+                details={"source": source, "adjustment": adjustment},
+            )
+            for index, (source, adjustment) in enumerate(
+                [("first", "forward"), ("second", "forward"), ("first", "none")]
+            )
+        ]
+        db.add_all(runs)
+        db.flush()
+        first_id, second_id, unadjusted_id = [run.id for run in runs]
+    client = TestClient(create_app())
+    summaries = client.get("/api/scan/summaries?market=CN&source=first").json()
+    assert [row["id"] for row in summaries] == [first_id]
+    selected = client.get(f"/api/scan/{day}/summary?market=CN&source=first").json()
+    assert selected["id"] == first_id
+    for suffix in ["summary", "results", "events", "sectors"]:
+        assert (
+            client.get(f"/api/scan/{second_id}/{suffix}?market=CN&source=first").status_code == 404
+        )
+        assert (
+            client.get(f"/api/scan/{unadjusted_id}/{suffix}?market=CN&source=first").status_code
+            == 404
+        )
+    raw = client.get("/api/scan/summaries?market=CN&source=first&adjustment=none").json()
+    assert [row["id"] for row in raw] == [unadjusted_id]
+    assert client.get("/api/scan/summaries?market=US&source=first").json() == []
+    assert client.get("/api/scan/summaries?market=CN&source=missing").json() == []
 
 
 def test_oral_patch_preserves_unmentioned_facts_and_observation_times(database):

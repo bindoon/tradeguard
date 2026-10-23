@@ -145,7 +145,7 @@ function LazyLatestChart({ stockCode, scanDate, source }: { stockCode: string; s
 
     const cancelQueuedRequest = enqueueChartRequest(async () => {
       try {
-        const data = await fetchKline(stockCode, chartDays, undefined, source);
+        const data = await fetchKline(stockCode, chartDays, scanDate, source);
         if (!cancelled) {
           setChartData(data);
         }
@@ -164,7 +164,7 @@ function LazyLatestChart({ stockCode, scanDate, source }: { stockCode: string; s
       cancelled = true;
       cancelQueuedRequest();
     };
-  }, [shouldLoad, chartData, stockCode, chartDays]);
+  }, [shouldLoad, chartData, stockCode, chartDays, scanDate, source]);
 
   const scanDayExists = chartData?.some(item => item.date === scanDate) ?? false;
 
@@ -354,7 +354,7 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
   const [sectors, setSectors] = useState<ScanSector[]>([]);
   const [summary, setSummary] = useState<(ScanSummary & { found: boolean }) | null>(null);
   const [minResonance, setMinResonance] = useState(1);
-  const [showCharts, setShowCharts] = useState(true);
+  const [showCharts, setShowCharts] = useState(false);
   const [showConditions, setShowConditions] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -668,7 +668,7 @@ export default function ScanResultsPage({ scanDate, onBack, onSelectStock, onHom
                 onChange={event => setShowCharts(event.target.checked)}
                 className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
               />
-              默认展示图表
+              展示历史图表
             </label>
           )}
         </div>

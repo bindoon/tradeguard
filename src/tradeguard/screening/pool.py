@@ -1,23 +1,34 @@
 from collections import Counter, defaultdict
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
 from tradeguard.db import session
-from tradeguard.db.models import DailyBar, Security
+from tradeguard.db.models import DailyBar, Security, now
 from tradeguard.screening.filters import FilterOptions, rejection
 
 
-def filter_pool(market: str, source: str, target: date | None, options: dict):
+def filter_pool(
+    market: str, source: str, target: date | None, options: dict, adjustment: str = "forward"
+):
     if market not in {"CN", "US", "HK"}:
         raise ValueError("Unknown market")
+    today = now().astimezone(ZoneInfo("Asia/Shanghai")).date()
+    if target and target > today:
+        raise ValueError("Cannot filter a future trading day")
     config = FilterOptions.for_market(market, options)
     with session() as db:
         if target is None:
             target = db.scalar(
                 select(func.max(DailyBar.trade_date))
                 .join(Security, DailyBar.symbol == Security.symbol)
-                .where(Security.market == market, DailyBar.source == source)
+                .where(
+                    Security.market == market,
+                    DailyBar.source == source,
+                    DailyBar.adjustment == adjustment,
+                    DailyBar.trade_date <= today,
+                )
             )
         securities = db.scalars(
             select(Security).where(Security.market == market).order_by(Security.symbol)
@@ -37,7 +48,7 @@ def filter_pool(market: str, source: str, target: date | None, options: dict):
                     .where(
                         DailyBar.symbol.in_([s.symbol for s in batch]),
                         DailyBar.source == source,
-                        DailyBar.adjustment == "forward",
+                        DailyBar.adjustment == adjustment,
                         DailyBar.trade_date <= target,
                     )
                     .order_by(DailyBar.symbol, DailyBar.trade_date)

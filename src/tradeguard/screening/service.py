@@ -4,6 +4,7 @@ import json
 from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import select
@@ -44,7 +45,9 @@ def event(
         )
 
 
-def create_run(target: date, market: str, source: str, filters: dict | None = None):
+def create_run(
+    target: date, market: str, source: str, filters: dict | None = None, adjustment: str = "forward"
+):
     if market not in {"CN", "US", "HK"}:
         raise ValueError("Market must be CN, US or HK")
     with session() as db, db.begin():
@@ -57,6 +60,7 @@ def create_run(target: date, market: str, source: str, filters: dict | None = No
                 "date": str(target),
                 "market": market,
                 "source": source,
+                "adjustment": adjustment,
                 "filter_options": filters or {},
             },
         )
@@ -77,9 +81,13 @@ def scan(
 ) -> dict:
     if min_resonance < 1:
         raise ValueError("min_resonance must be positive")
+    if target > now().astimezone(ZoneInfo("Asia/Shanghai")).date():
+        raise ValueError("Cannot scan a future trading day")
+    if adjustment not in {"forward", "none", "backward"}:
+        raise ValueError("Unknown adjustment")
     options = FilterOptions.for_market(market, filters)
     retire_stale_runs()
-    run_id = run_id or create_run(target, market, source, filters)
+    run_id = run_id or create_run(target, market, source, filters, adjustment)
     try:
         with named_lock(f"scan:{market}"):
             return _scan(

@@ -1,257 +1,410 @@
-import { useMarket } from './MarketContext';
-import { useState, useEffect } from 'react';
-import { fetchScanSummaries, startScan } from './api';
-import { ScanSummary } from './types';
-import SelectionShell, { SelectionNavProps } from './SelectionShell';
-import { DAILY_STRATEGIES as STRATEGIES } from './strategies';
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, RefreshCw, ScanLine } from "lucide-react";
+import { openPath, scopedPath, useMarket } from "./MarketContext";
+import {
+  CachedScanDate,
+  fetchScanDates,
+  fetchScanSummaries,
+  startScan,
+} from "./api";
+import { ScanSummary } from "./types";
+import CalendarPicker from "./CalendarPicker";
+import SelectionShell, { SelectionNavProps } from "./SelectionShell";
+import { DAILY_STRATEGIES } from "./strategies";
 
 interface Props extends SelectionNavProps {
   onBack: () => void;
   onSelectDate: (date: string) => void;
 }
-
-const REGIME_LABEL: Record<string, { text: string; color: string }> = {
-  bull:    { text: '牛市', color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/30' },
-  neutral: { text: '震荡', color: 'text-yellow-400  bg-yellow-400/10  border-yellow-400/30'  },
-  unknown: { text: '未判断', color: 'text-slate-400 bg-slate-700 border-slate-600' },
-  bear:    { text: '熊市', color: 'text-red-400     bg-red-400/10     border-red-400/30'     },
+const STATUS: Record<string, string> = {
+  success: "已完成",
+  partial: "部分完成",
+  running: "扫描中",
+  queued: "排队中",
+  failed: "失败",
+  stale: "已中断",
 };
-
-const REGIME_TOOLTIP: Record<string, string> = {
-  bull: '计算规则：指数收盘价高于 MA20，且 MA20 近 5 日斜率为正。',
-  neutral: '计算规则：指数未同时满足牛市或熊市条件，视为震荡环境。',
-  bear: '计算规则：指数收盘价低于 MA20，且 MA20 近 5 日斜率为负。',
+const REGIME: Record<string, string> = {
+  bull: "牛市",
+  bear: "熊市",
+  neutral: "震荡",
+  unknown: "环境未知",
 };
+const count = (value?: number | null) =>
+  typeof value === "number" ? value.toLocaleString() : "—";
 
-function formatCount(value: number | null | undefined) {
-  return typeof value === 'number' ? value.toLocaleString() : '--';
-}
-
-export default function ScanPage({ onBack, onSelectDate, onHome, onScan, onScreener, onPortfolio, onMonitor }: Props) {
-  const {market, source, info} = useMarket();
-  const [runDate, setRunDate] = useState(() => info?.sources.find(s => s.source === source)?.max_date || '');
-  const [starting, setStarting] = useState(false);
-  async function launchScan() { setStarting(true); setError(null); try { const result=await startScan(runDate); onSelectDate(result.run_id); } catch(e) { setError((e as Error).message); } finally {setStarting(false);} }
+export default function ScanPage({ onBack, onSelectDate, ...nav }: Props) {
+  const { market, source, adjustment, info } = useMarket();
+  const [runDate, setRunDate] = useState("");
+  const [dates, setDates] = useState<CachedScanDate[]>([]);
   const [summaries, setSummaries] = useState<ScanSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [stepOpen, setStepOpen] = useState<Record<string, boolean>>({ '01': false, '03': false });
-  const toggleStep = (n: string) => setStepOpen(prev => ({ ...prev, [n]: !prev[n] }));
+  const [dateError, setDateError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  const [historyDate, setHistoryDate] = useState("");
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
-    fetchScanSummaries()
-      .then(data => { setSummaries(data); setLoading(false); })
-      .catch(err => { setError(err.message); setLoading(false); });
-  }, [market, source]);
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setDateError(null);
+    setSummaries([]);
+    setDates([]);
+    setRunDate("");
+    setHistoryDate("");
+    // History remains usable even when reading cache availability fails.
+    Promise.allSettled([fetchScanSummaries(), fetchScanDates()]).then(
+      ([history, cache]) => {
+        if (cancelled) return;
+        if (history.status === "fulfilled") {
+          setSummaries(
+            [...history.value].sort(
+              (a, b) =>
+                b.scanDate.localeCompare(a.scanDate) ||
+                (b.executionDate || "").localeCompare(a.executionDate || ""),
+            ),
+          );
+        } else
+          setError(
+            history.reason instanceof Error
+              ? history.reason.message
+              : "扫描记录读取失败",
+          );
+        if (cache.status === "fulfilled") {
+          setDates(cache.value);
+          setRunDate(cache.value[0]?.date || "");
+        } else
+          setDateError(
+            cache.reason instanceof Error
+              ? cache.reason.message
+              : "可用交易日读取失败",
+          );
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [market, source, adjustment, refresh]);
+
+  useEffect(() => {
+    if (!summaries.some((s) => s.status === "running" || s.status === "queued"))
+      return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchScanSummaries()
+        .then((rows) => {
+          if (!cancelled) setSummaries(rows);
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e.message);
+        });
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [summaries]);
+
+  async function launchScan() {
+    setStarting(true);
+    setError(null);
+    try {
+      const result = await startScan(runDate);
+      if (mounted.current) onSelectDate(result.run_id);
+    } catch (e) {
+      if (mounted.current) setError((e as Error).message);
+    } finally {
+      if (mounted.current) setStarting(false);
+    }
+  }
+  const selectedCache = dates.find((d) => d.date === runDate);
+  const currentSource = info?.sources.find(
+    (s) => s.source === source && s.adjustment === adjustment,
+  );
+  const alternatives =
+    info?.sources.filter(
+      (s) =>
+        (s.source !== source || s.adjustment !== adjustment) &&
+        s.scan_count > 0,
+    ) || [];
+  const historyDates = [...new Set(summaries.map((s) => s.scanDate))];
+  const visible = historyDate
+    ? summaries.filter((s) => s.scanDate === historyDate)
+    : summaries;
 
   return (
     <SelectionShell
       currentSection="scan"
-      onHome={onHome ?? onBack}
-      onScan={onScan}
-      onScreener={onScreener}
-      onPortfolio={onPortfolio}
-      onMonitor={onMonitor}
+      {...nav}
+      onHome={nav.onHome ?? onBack}
     >
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 transition-all"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-white">每日扫描记录</h1>
-            <p className="text-slate-400 text-sm">{info?.label} · 共 {summaries.length} 次扫描</p>
+      <div className="space-y-5">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              aria-label="返回工作台"
+              onClick={onBack}
+              className="tg-button p-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div>
+              <h1 className="text-xl font-semibold text-white">每日扫描</h1>
+              <p className="mt-1 text-xs text-slate-400">
+                {info?.label} · {source || "暂无行情来源"} ·{" "}
+                {
+                  (
+                    {
+                      forward: "前复权",
+                      none: "不复权",
+                      backward: "后复权",
+                    } as Record<string, string>
+                  )[adjustment]
+                }{" "}
+                · 缓存截止 {currentSource?.max_date || "未知"}
+              </p>
+            </div>
           </div>
-        </div>
+          <button
+            aria-label="刷新扫描记录"
+            onClick={() => setRefresh((n) => n + 1)}
+            disabled={loading || starting}
+            className="tg-button inline-flex items-center gap-2"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+            />
+            刷新
+          </button>
+        </header>
 
-        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-500/20 bg-slate-900 p-4">
-          <label className="text-sm text-slate-300">扫描交易日<input aria-label="扫描交易日" type="date" value={runDate} onChange={e=>setRunDate(e.target.value)} className="ml-3 rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" /></label>
-          <button disabled={starting || !source || !runDate} onClick={launchScan} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">{starting ? '正在创建任务…' : '开始扫描缓存'}</button>
-          <p className="text-xs text-slate-400">使用已保存行情，不自动下载全市场；每次执行单独保留记录。</p>
-        </div>
-        {/* Workflow hint */}
-        <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 space-y-3">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">扫描流程</div>
+        <section
+          className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 sm:p-5"
+          aria-label="新建扫描"
+        >
+          <div className="mb-4 flex items-center gap-2">
+            <ScanLine className="h-4 w-4 text-emerald-400" />
+            <h2 className="text-sm font-semibold text-white">扫描已保存行情</h2>
+          </div>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <CalendarPicker
+              availableDates={dates.map((d) => d.date)}
+              selectedDate={runDate}
+              onSelectDate={setRunDate}
+              disabled={loading || starting}
+            />
+            <button
+              disabled={loading || starting || !source || !selectedCache}
+              onClick={launchScan}
+              className="tg-primary inline-flex items-center gap-2"
+            >
+              {starting ? "正在创建任务…" : "开始扫描"}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-4 text-xs leading-5 text-slate-400">
+            {loading
+              ? "正在读取可用交易日…"
+              : dateError
+                ? dateError
+                : selectedCache
+                  ? `${runDate} 有 ${count(selectedCache.symbols)} 个标的缓存，扫描前仍会检查历史长度和过滤条件。`
+                  : "当前市场、来源和复权尚无股票缓存，请先导入或同步行情。"}{" "}
+            扫描使用同源缓存，不自动下载行情。
+          </p>
+        </section>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-            {/* Step 01 — 市场环境 (expandable) */}
-            <div className="rounded-lg border border-slate-700 bg-slate-900/60">
-              <button
-                onClick={() => toggleStep('01')}
-                className="w-full flex items-start gap-2 px-3 py-2.5 text-left"
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300"
+          >
+            {error}
+          </div>
+        )}
+
+        <section aria-label="历史扫描" className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-200">
+              扫描记录{" "}
+              <span className="ml-2 font-normal text-slate-500">
+                {historyDates.length} 个交易日 · {summaries.length} 次执行
+              </span>
+            </h2>
+            {historyDates.length > 0 && (
+              <select
+                aria-label="筛选扫描记录日期"
+                className="tg-input py-1.5"
+                value={historyDate}
+                onChange={(e) => setHistoryDate(e.target.value)}
               >
-                <span className="mt-0.5 shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">01</span>
-                <div className="flex-1">
-                  <div className="text-xs font-semibold text-white">市场环境</div>
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{market === 'CN' ? '上证' : market === 'US' ? 'SPY' : '恒生 ETF'} MA20；缺基准数据时保留未知</p>
-                </div>
-                <svg className={`mt-1 h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform ${stepOpen['01'] ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {stepOpen['01'] && (
-                <div className="border-t border-slate-700 px-3 pb-3 pt-2.5 space-y-1.5">
-                  <div className="mb-1.5 text-[10px] uppercase tracking-[0.18em] text-slate-500">{market === 'CN' ? '000001.SH' : market === 'US' ? 'SPY.US' : '02800.HK'}</div>
-                  <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-2">
-                    <span className="shrink-0 rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">牛市</span>
-                    <p className="text-[11px] leading-4 text-slate-400">收盘 &gt; MA20，且 MA20 近 5 日斜率为正</p>
-                  </div>
-                  <div className="flex items-center gap-2.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2">
-                    <span className="shrink-0 rounded border border-yellow-400/30 bg-yellow-400/10 px-2 py-0.5 text-[11px] font-semibold text-yellow-300">震荡</span>
-                    <p className="text-[11px] leading-4 text-slate-400">未同时满足牛市或熊市条件</p>
-                  </div>
-                  <div className="flex items-center gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 px-2.5 py-2">
-                    <span className="shrink-0 rounded border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">熊市</span>
-                    <p className="text-[11px] leading-4 text-slate-400">收盘 &lt; MA20，且 MA20 近 5 日斜率为负</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Step 02 — 初筛股票池 (enriched inline) */}
-            <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5">
-              <div className="flex items-start gap-2 mb-2.5">
-                <span className="mt-0.5 shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">02</span>
-                <div>
-                  <div className="text-xs font-semibold text-white">初筛股票池</div>
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-500">进入策略前的过滤规则</p>
-                </div>
-              </div>
-              <ul className="space-y-1 pl-0.5">
-                {[
-                  ...(market === 'CN' ? ['剔除 ST / *ST 股票'] : []),
-                  '剔除停牌股票',
-                  market === 'CN' ? '剔除上市不满 365 天新股（缺日期另提示）' : '校验上市历史 90 天（缺日期另提示）',
-                  market === 'CN' ? '近 5 日日均成交额 ≥ 1 亿 CNY' : '近 5 日日均成交额 ≥ 2,000 万当地币',
-                  ...(market === 'CN' ? ['剔除触及涨跌幅阈值的标的（按板块区分）'] : ['不套用 A 股 ST / 涨跌停规则']),
-                ].map(item => (
-                  <li key={item} className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                    <span className="h-1 w-1 rounded-full bg-slate-500 shrink-0" />
-                    {item}
-                  </li>
+                <option value="">全部日期</option>
+                {historyDates.map((day) => (
+                  <option key={day}>{day}</option>
                 ))}
-              </ul>
-            </div>
-
-            {/* Step 03 — 策略扫描 (expandable, default collapsed) */}
-            <div className="rounded-lg border border-slate-700 bg-slate-900/60">
-              <button
-                onClick={() => toggleStep('03')}
-                className="w-full flex items-start gap-2 px-3 py-2.5 text-left"
-              >
-                <span className="mt-0.5 shrink-0 rounded bg-slate-700 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">03</span>
-                <div className="flex-1">
-                  <div className="text-xs font-semibold text-white">策略扫描</div>
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-500">{STRATEGIES.length} 个策略打标，记录共振数</p>
-                </div>
-                <svg className={`mt-1 h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform ${stepOpen['03'] ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {stepOpen['03'] && (
-                <div className="border-t border-slate-700 px-3 pb-3 pt-2.5 space-y-1.5">
-                  {STRATEGIES.map(strategy => (
-                    <div key={strategy.name} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg border border-slate-700 bg-slate-950/40 px-2.5 py-1.5">
-                      <span className="text-[11px] font-semibold text-white">{strategy.title}</span>
-                      <span className="text-[11px] text-slate-500">· {strategy.description}</span>
-                    </div>
+              </select>
+            )}
+          </div>
+          {loading ? (
+            <p
+              role="status"
+              className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-400"
+            >
+              正在读取扫描记录…
+            </p>
+          ) : summaries.length === 0 && !error ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-6 sm:p-8">
+              <p className="text-sm font-medium text-slate-200">
+                {source || "当前来源"} 尚无扫描记录
+              </p>
+              <p className="mt-2 text-sm text-slate-400">
+                {dates.length
+                  ? "选择上方有缓存的交易日开始扫描，结果会保存在这里。"
+                  : "导入或同步该来源行情后，即可选择交易日扫描。"}
+              </p>
+              {alternatives.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">
+                    其他来源已有记录：
+                  </span>
+                  {alternatives.map((s) => (
+                    <button
+                      key={s.source + s.adjustment}
+                      className="tg-button text-xs"
+                      onClick={() =>
+                        openPath(
+                          scopedPath("/scan", {
+                            source: s.source,
+                            adjustment: s.adjustment,
+                          }),
+                        )
+                      }
+                    >
+                      查看 {s.source} · {s.latest_scan_date} · {s.scan_count} 次
+                    </button>
                   ))}
                 </div>
               )}
             </div>
-          </div>
-        </div>
-
-        {error && (
-          <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 text-red-300 text-sm">{error}</div>
-        )}
-
-        {loading && (
-          <div className="rounded-lg border border-slate-700 bg-slate-800 py-16 text-center text-white text-xl">加载中...</div>
-        )}
-
-        {summaries.length === 0 && !loading && !error && (
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-8 text-center">
-            <p className="text-slate-400">暂无扫描数据，请先运行 上方「开始扫描缓存」</p>
-          </div>
-        )}
-
-        {!loading && (
-          <div className="space-y-2">
-          {summaries.map(s => {
-            const regime = REGIME_LABEL[s.marketRegime] ?? { text: s.marketRegime, color: 'text-slate-400 bg-slate-700 border-slate-600' };
-            const topSectors = Array.isArray(s.topSectors) ? s.topSectors.slice(0, 3) : [];
-            const totalStockCount = s.totalStockCount ?? s.tradableCount;
-            const filteredOutCount = s.filteredOutCount ?? Math.max(totalStockCount - s.tradableCount, 0);
-            const hitStockCount = s.hitStockCount ?? s.candidateCount;
-            const hitIndustryCount = s.hitIndustryCount ?? 0;
-            const resonanceIndustryCount = s.sectorCount ?? s.resonanceIndustryCount ?? 0;
-            const metrics = [
-              { label: '命中股票', value: formatCount(hitStockCount), tone: 'text-emerald-400' },
-              { label: '≥2 共振', value: formatCount(s.candidateCount), tone: 'text-cyan-400' },
-              { label: '涉及行业', value: formatCount(hitIndustryCount), tone: 'text-amber-300' },
-              { label: '共振行业', value: formatCount(resonanceIndustryCount), tone: 'text-blue-400' },
-            ];
-            return (
-              <button
-                key={s.id}
-                onClick={() => onSelectDate(s.id)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-800 p-4 text-left transition-all hover:border-slate-500 hover:bg-slate-750"
-              >
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="w-28 shrink-0 text-white font-semibold">{s.scanDate}</div><span className="rounded border border-slate-600 px-2 py-0.5 text-xs text-cyan-200">{s.status === 'success' ? '完成' : s.status === 'partial' ? '部分完成' : s.status === 'running' ? '扫描中' : s.status === 'queued' ? '排队中' : '失败'}</span><span className="text-xs text-slate-500">{new Date(s.executionDate || '').toLocaleString('zh-CN')}</span>
+          ) : (
+            visible.map((s) => {
+              const inProgress =
+                s.status === "queued" || s.status === "running";
+              const missing =
+                (s.filterCounts?.missing_target_bar || 0) +
+                (s.filterCounts?.insufficient_history || 0);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => onSelectDate(s.id)}
+                  className="group w-full rounded-xl border border-slate-700/70 bg-slate-900/60 p-4 text-left transition hover:border-slate-500 hover:bg-slate-800/70"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <time className="font-semibold tabular-nums text-white">
+                        {s.scanDate}
+                      </time>
                       <span
-                        title={REGIME_TOOLTIP[s.marketRegime] ?? '市场环境按指数相对 MA20 与均线斜率判断。'}
-                        className={`cursor-help rounded border px-2 py-0.5 text-xs font-medium ${regime.color}`}
+                        className={`rounded-md px-2 py-0.5 text-xs ${s.status === "success" ? "bg-emerald-500/10 text-emerald-300" : s.status === "partial" ? "bg-amber-500/10 text-amber-300" : s.status === "failed" || s.status === "stale" ? "bg-red-500/10 text-red-300" : "bg-cyan-500/10 text-cyan-300"}`}
                       >
-                        {regime.text}
+                        {STATUS[s.status] || s.status}
                       </span>
-                      <span className="text-sm text-slate-400">
-                        股票池 {formatCount(totalStockCount)} 只，过滤 {formatCount(filteredOutCount)} 只后继续扫描 {formatCount(s.tradableCount)} 只
+                      <span className="text-xs text-slate-500">
+                        {REGIME[s.marketRegime] || "环境未知"}
                       </span>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                      {metrics.map(metric => (
-                        <div key={metric.label} className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5">
-                          <div className={`text-lg font-semibold ${metric.tone}`}>{metric.value}</div>
-                          <div className="mt-1 text-xs text-slate-500">{metric.label}</div>
+                    <span className="inline-flex items-center gap-1 text-xs text-slate-400 group-hover:text-emerald-300">
+                      查看明细
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {[
+                      {
+                        label: "参与扫描",
+                        value: s.scannedStockCount ?? s.tradableCount,
+                      },
+                      {
+                        label: "命中策略",
+                        value: s.hitStockCount ?? s.candidateCount,
+                      },
+                      { label: "≥2 策略共振", value: s.candidateCount },
+                    ].map((metric) => (
+                      <div key={metric.label}>
+                        <div
+                          className={`text-lg font-semibold tabular-nums ${metric.label === "命中策略" ? "text-emerald-300" : "text-slate-200"}`}
+                        >
+                          {inProgress ? "…" : count(metric.value)}
                         </div>
-                      ))}
-                    </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {metric.label}
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3 text-xs text-slate-500">
+                    <span>
+                      {s.error ||
+                        (inProgress
+                          ? "任务执行中，可查看进度"
+                          : missing
+                            ? `${count(missing)} 个标的缺当日行情或历史不足，查看明细了解原因`
+                            : s.hitStockCount === 0
+                              ? "本次未命中策略，可查看过滤原因"
+                              : s.topSectors
+                                  .slice(0, 3)
+                                  .map((v) => v.sector)
+                                  .join(" · ") || "未记录行业")}
+                    </span>
+                    <span>
+                      {s.executionDate
+                        ? new Date(s.executionDate).toLocaleString("zh-CN", {
+                            timeZone: "Asia/Shanghai",
+                          })
+                        : ""}
+                    </span>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </section>
 
-                  <div className="flex items-center justify-between gap-3 xl:block xl:text-right">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {topSectors.length > 0 ? topSectors.slice(0, 3).map(sec => (
-                        <span key={sec.sector} className="rounded-full border border-slate-600 bg-slate-900/70 px-2.5 py-1 text-xs text-slate-300">
-                          {sec.sector}
-                        </span>
-                      )) : (
-                        <span className="text-xs text-slate-500">暂无重点行业</span>
-                      )}
-                    </div>
-                    <div className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-500">
-                      <span>查看当日明细</span>
-                      <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+        <details className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-sm text-slate-400">
+          <summary className="cursor-pointer text-xs text-slate-400">
+            扫描规则与策略说明
+          </summary>
+          <div className="mt-4 grid gap-4 text-xs leading-6 sm:grid-cols-3">
+            <div>
+              <h3 className="font-medium text-slate-200">1. 市场环境</h3>
+              <p>按同源基准的 MA20 和斜率判断；缺基准数据时保留未知。</p>
+            </div>
+            <div>
+              <h3 className="font-medium text-slate-200">2. 股票池过滤</h3>
+              <p>
+                检查停牌、上市历史、流动性；A 股额外检查 ST
+                与板块涨跌幅。每个过滤原因均保存。
+              </p>
+            </div>
+            <div>
+              <h3 className="font-medium text-slate-200">3. 五策略扫描</h3>
+              <p>
+                {DAILY_STRATEGIES.map((s) => s.title).join("、")}
+                。命中数与共振数分别记录。
+              </p>
+            </div>
           </div>
-        )}
+        </details>
       </div>
     </SelectionShell>
   );

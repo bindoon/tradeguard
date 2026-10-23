@@ -1,13 +1,16 @@
-import { activeMarket, activeSource } from './MarketContext';
+import { activeMarket, activeSource, activeAdjustment } from "./MarketContext";
 import {
   KlineData,
-  ScanSummary, ScanResult, ScanSector, ScanTopSector,
+  ScanSummary,
+  ScanResult,
+  ScanSector,
+  ScanTopSector,
   FilteredPoolResult,
   StockProfile,
-} from './types';
+} from "./types";
 
 // API base URL: 开发时通过 VITE_API_URL 指定后端地址，编译后留空则同域
-const API_BASE = (import.meta.env.VITE_API_URL as string) || '';
+const API_BASE = (import.meta.env.VITE_API_URL as string) || "";
 
 type ScanResultsResponse = {
   results?: ScanResult[];
@@ -27,52 +30,73 @@ type ScanSectorsResponse = {
   sectors?: ScanSector[];
 };
 
-type ScanSummaryPayload = Omit<ScanSummary, 'topSectors'> & {
+type ScanSummaryPayload = Omit<ScanSummary, "topSectors"> & {
   topSectors?: Array<string | Partial<ScanTopSector>> | null;
 };
 
-function normalizeTopSectors(payload: Array<string | Partial<ScanTopSector>> | null | undefined): ScanTopSector[] {
+function normalizeTopSectors(
+  payload: Array<string | Partial<ScanTopSector>> | null | undefined,
+): ScanTopSector[] {
   if (!Array.isArray(payload)) {
     return [];
   }
 
   return payload
-    .map(item => {
-      if (typeof item === 'string') {
+    .map((item) => {
+      if (typeof item === "string") {
         return { sector: item, rs: null, count: 0 };
       }
-      if (!item || typeof item !== 'object') {
+      if (!item || typeof item !== "object") {
         return null;
       }
       return {
-        sector: item.sector ?? '',
-        rs: typeof item.rs === 'number' ? item.rs : null,
-        count: typeof item.count === 'number' ? item.count : 0,
+        sector: item.sector ?? "",
+        rs: typeof item.rs === "number" ? item.rs : null,
+        count: typeof item.count === "number" ? item.count : 0,
       };
     })
     .filter((item): item is ScanTopSector => Boolean(item && item.sector));
 }
 
-function normalizeScanSummary<T extends ScanSummaryPayload>(payload: T): Omit<T, 'topSectors'> & { topSectors: ScanTopSector[] } {
+function normalizeScanSummary<T extends ScanSummaryPayload>(
+  payload: T,
+): Omit<T, "topSectors"> & { topSectors: ScanTopSector[] } {
   return {
     ...payload,
     topSectors: normalizeTopSectors(payload.topSectors),
   };
 }
 
-async function apiFetch<T>(path: string): Promise<T> {
+const inFlight = new Map<string, Promise<unknown>>();
+export async function apiFetch<T>(path: string): Promise<T> {
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
-  url.searchParams.set('market', activeMarket());
-  if (!url.searchParams.has('source') && activeSource()) url.searchParams.set('source', activeSource());
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(typeof body.detail === 'string' ? body.detail : `读取失败 (${response.status})`);
-  }
-  return response.json() as Promise<T>;
+  url.searchParams.set("market", activeMarket());
+  if (!url.searchParams.has("source") && activeSource())
+    url.searchParams.set("source", activeSource());
+  if (!url.searchParams.has("adjustment"))
+    url.searchParams.set("adjustment", activeAdjustment());
+  const key = url.toString();
+  const pending = inFlight.get(key);
+  if (pending) return pending as Promise<T>;
+  const request = (async () => {
+    const response = await fetch(key, { signal: AbortSignal.timeout(20000) });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(
+        typeof body.detail === "string"
+          ? body.detail
+          : `读取失败 (${response.status})`,
+      );
+    }
+    return response.json() as Promise<T>;
+  })().finally(() => inFlight.delete(key));
+  inFlight.set(key, request);
+  return request;
 }
 
-function normalizeScanResults(payload: ScanResult[] | ScanResultsResponse): ScanResult[] {
+function normalizeScanResults(
+  payload: ScanResult[] | ScanResultsResponse,
+): ScanResult[] {
   if (Array.isArray(payload)) {
     return payload;
   }
@@ -82,7 +106,9 @@ function normalizeScanResults(payload: ScanResult[] | ScanResultsResponse): Scan
   return [];
 }
 
-function normalizeScanSectors(payload: ScanSector[] | ScanSectorsResponse): ScanSector[] {
+function normalizeScanSectors(
+  payload: ScanSector[] | ScanSectorsResponse,
+): ScanSector[] {
   if (Array.isArray(payload)) {
     return payload;
   }
@@ -90,8 +116,8 @@ function normalizeScanSectors(payload: ScanSector[] | ScanSectorsResponse): Scan
     return payload.sectors;
   }
   if (Array.isArray(payload.sectorDetails)) {
-    return payload.sectorDetails.map(detail => ({
-      industry: detail.sector ?? '',
+    return payload.sectorDetails.map((detail) => ({
+      industry: detail.sector ?? "",
       candidateCount: detail.candidateCount ?? 0,
       rsScore: detail.avgRS ?? null,
       stocks: [],
@@ -108,13 +134,18 @@ export async function fetchKline(
   source?: string,
 ): Promise<KlineData[]> {
   const params = new URLSearchParams({ days: String(days) });
-  if (endDate) params.set('endDate', endDate);
-  if (source) params.set('source', source);
+  if (endDate) params.set("endDate", endDate);
+  if (source) params.set("source", source);
   return apiFetch<KlineData[]>(`/api/kline/${stockCode}?${params.toString()}`);
 }
 
-export async function fetchStockProfile(stockCode: string): Promise<StockProfile> {
-  return apiFetch<StockProfile>(`/api/stocks/${encodeURIComponent(stockCode)}/profile`);
+export async function fetchStockProfile(
+  stockCode: string,
+  endDate?: string,
+): Promise<StockProfile> {
+  return apiFetch<StockProfile>(
+    `/api/stocks/${encodeURIComponent(stockCode)}/profile${endDate ? `?endDate=${endDate}` : ""}`,
+  );
 }
 
 export interface StockSignal {
@@ -124,8 +155,13 @@ export interface StockSignal {
   reasons: string[];
 }
 
-export async function fetchStockSignals(stockCode: string): Promise<StockSignal[]> {
-  return apiFetch<StockSignal[]>(`/api/stocks/${encodeURIComponent(stockCode)}/signals`);
+export async function fetchStockSignals(
+  stockCode: string,
+  endDate?: string,
+): Promise<StockSignal[]> {
+  return apiFetch<StockSignal[]>(
+    `/api/stocks/${encodeURIComponent(stockCode)}/signals${endDate ? `?endDate=${endDate}` : ""}`,
+  );
 }
 
 // ── Stock Pool Filter API ─────────────────────────────────────────────────────
@@ -144,30 +180,51 @@ export async function fetchFilteredStockPool(params: {
   targetDate?: string;
 }): Promise<FilteredPoolResult> {
   const q = new URLSearchParams();
-  if (params.filterSt !== undefined) q.set('filter_st', String(params.filterSt));
-  if (params.filterNewStock !== undefined) q.set('filter_new_stock', String(params.filterNewStock));
-  if (params.filterLiquidity !== undefined) q.set('filter_liquidity', String(params.filterLiquidity));
-  if (params.filterMarketCap !== undefined) q.set('filter_market_cap', String(params.filterMarketCap));
-  if (params.filterSuspended !== undefined) q.set('filter_suspended', String(params.filterSuspended));
-  if (params.filterLimit !== undefined) q.set('filter_limit', String(params.filterLimit));
-  if (params.minAvgVolume !== undefined) q.set('min_avg_volume', String(params.minAvgVolume));
-  if (params.minListedDays !== undefined) q.set('min_listed_days', String(params.minListedDays));
-  if (params.limitPct !== undefined) q.set('limit_pct', String(params.limitPct));
-  if (params.targetDate) q.set('target_date', params.targetDate);
+  if (params.filterSt !== undefined)
+    q.set("filter_st", String(params.filterSt));
+  if (params.filterNewStock !== undefined)
+    q.set("filter_new_stock", String(params.filterNewStock));
+  if (params.filterLiquidity !== undefined)
+    q.set("filter_liquidity", String(params.filterLiquidity));
+  if (params.filterMarketCap !== undefined)
+    q.set("filter_market_cap", String(params.filterMarketCap));
+  if (params.filterSuspended !== undefined)
+    q.set("filter_suspended", String(params.filterSuspended));
+  if (params.filterLimit !== undefined)
+    q.set("filter_limit", String(params.filterLimit));
+  if (params.minAvgVolume !== undefined)
+    q.set("min_avg_volume", String(params.minAvgVolume));
+  if (params.minListedDays !== undefined)
+    q.set("min_listed_days", String(params.minListedDays));
+  if (params.limitPct !== undefined)
+    q.set("limit_pct", String(params.limitPct));
+  if (params.targetDate) q.set("target_date", params.targetDate);
   return apiFetch<FilteredPoolResult>(`/api/stock-pool/filter?${q.toString()}`);
 }
 
 // ── Scan API ──────────────────────────────────────────────────────────────────
 
+export interface CachedScanDate {
+  date: string;
+  symbols: number;
+}
+export function fetchScanDates(): Promise<CachedScanDate[]> {
+  return apiFetch("/api/scan/dates");
+}
+
 /** 所有扫描日期汇总（降序） */
 export async function fetchScanSummaries(): Promise<ScanSummary[]> {
-  const data = await apiFetch<ScanSummaryPayload[]>('/api/scan/summaries');
+  const data = await apiFetch<ScanSummaryPayload[]>("/api/scan/summaries");
   return data.map(normalizeScanSummary);
 }
 
 /** 某日扫描的完整摘要（市场环境、过滤统计） */
-export async function fetchScanSummary(scanDate: string): Promise<ScanSummary & { found: boolean }> {
-  const data = await apiFetch<ScanSummaryPayload & { found: boolean }>(`/api/scan/${scanDate}/summary`);
+export async function fetchScanSummary(
+  scanDate: string,
+): Promise<ScanSummary & { found: boolean }> {
+  const data = await apiFetch<ScanSummaryPayload & { found: boolean }>(
+    `/api/scan/${scanDate}/summary`,
+  );
   return normalizeScanSummary(data);
 }
 
@@ -178,22 +235,56 @@ export async function fetchScanResults(
   industry?: string,
 ): Promise<ScanResult[]> {
   const params = new URLSearchParams({ min_resonance: String(minResonance) });
-  if (industry) params.set('industry', industry);
-  const data = await apiFetch<ScanResult[] | ScanResultsResponse>(`/api/scan/${scanDate}/results?${params.toString()}`);
+  if (industry) params.set("industry", industry);
+  const data = await apiFetch<ScanResult[] | ScanResultsResponse>(
+    `/api/scan/${scanDate}/results?${params.toString()}`,
+  );
   return normalizeScanResults(data);
 }
 
 /** 某日扫描的行业共振详情 */
-export async function fetchScanSectors(scanDate: string): Promise<ScanSector[]> {
-  const data = await apiFetch<ScanSector[] | ScanSectorsResponse>(`/api/scan/${scanDate}/sectors`);
+export async function fetchScanSectors(
+  scanDate: string,
+): Promise<ScanSector[]> {
+  const data = await apiFetch<ScanSector[] | ScanSectorsResponse>(
+    `/api/scan/${scanDate}/sectors`,
+  );
   return normalizeScanSectors(data);
 }
 
-export async function startScan(date: string): Promise<{run_id:string;status:string}> {
- const response = await fetch(`${API_BASE}/api/scan/run`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date,market:activeMarket(),source:activeSource()})});
- const body=await response.json();if(!response.ok)throw new Error(typeof body.detail==='string'?body.detail:'无法开始扫描');return body;
+export async function startScan(
+  date: string,
+): Promise<{ run_id: string; status: string }> {
+  const response = await fetch(`${API_BASE}/api/scan/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      date,
+      market: activeMarket(),
+      source: activeSource(),
+      adjustment: activeAdjustment(),
+    }),
+  });
+  const body = await response.json();
+  if (!response.ok)
+    throw new Error(
+      typeof body.detail === "string" ? body.detail : "无法开始扫描",
+    );
+  return body;
 }
-export async function realPortfolio(): Promise<import('./realTypes').RealPortfolio> { return apiFetch('/api/portfolio/accounts'); }
-export async function syncRealAccount(id:string): Promise<{status:string;error?:string}> {
- const response=await fetch(`${API_BASE}/api/portfolio/sync/${encodeURIComponent(id)}`,{method:'POST'}); const body=await response.json();if(!response.ok)throw new Error(body.detail||'同步失败');return body;
+export async function realPortfolio(): Promise<
+  import("./realTypes").RealPortfolio
+> {
+  return apiFetch("/api/portfolio/accounts");
+}
+export async function syncRealAccount(
+  id: string,
+): Promise<{ status: string; error?: string }> {
+  const response = await fetch(
+    `${API_BASE}/api/portfolio/sync/${encodeURIComponent(id)}`,
+    { method: "POST" },
+  );
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.detail || "同步失败");
+  return body;
 }

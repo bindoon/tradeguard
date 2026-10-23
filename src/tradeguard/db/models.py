@@ -48,6 +48,9 @@ class Security(Base):
 
 class DailyBar(Base):
     __tablename__ = "daily_bar"
+    __table_args__ = (
+        Index("ix_daily_bar_source_adjustment_date", "source", "adjustment", "trade_date"),
+    )
     symbol: Mapped[str] = mapped_column(ForeignKey("security.symbol"), primary_key=True)
     trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
     source: Mapped[str] = mapped_column(String(40), primary_key=True)

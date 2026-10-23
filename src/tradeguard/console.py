@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
@@ -25,6 +26,14 @@ from tradeguard.db.models import (
 from tradeguard.market.schemas import normalize_symbol
 from tradeguard.portfolio.schemas import ManualPatch
 from tradeguard.portfolio.service import create_account, manual_update
+from tradeguard.screening.availability import (
+    bounded_day,
+    cached_dates,
+    has_cached_equities,
+    preferred_source,
+    source_activity,
+    today,
+)
 from tradeguard.screening.filters import FilterOptions
 from tradeguard.screening.service import create_run, scan
 
@@ -54,9 +63,11 @@ def context_data(market):
                 func.max(DailyBar.trade_date),
             )
             .join(Security, Security.symbol == DailyBar.symbol)
-            .where(Security.market == market)
+            .where(Security.market == market, DailyBar.trade_date <= today())
             .group_by(DailyBar.source, DailyBar.adjustment)
+            .with_hint(DailyBar, "FORCE INDEX (ix_daily_bar_source_adjustment_date)", "mysql")
         ).all()
+        activity = source_activity(db, market)
     sources = [
         {
             "source": s,
@@ -65,12 +76,11 @@ def context_data(market):
             "symbols": sy,
             "min_date": str(mi),
             "max_date": str(ma),
+            **activity.get((s, a), {"scan_count": 0, "latest_scan_date": None}),
         }
         for s, a, n, sy, mi, ma in rows
     ]
-    preferred = next(
-        (s for s in sources if s["source"] == "legacy_mysql"), sources[0] if sources else None
-    )
+    preferred = preferred_source(sources)
     return {
         "market": market,
         "label": MARKETS[market][0],
@@ -78,6 +88,7 @@ def context_data(market):
         "security_count": securities,
         "sources": sources,
         "default_source": preferred["source"] if preferred else "",
+        "default_adjustment": preferred["adjustment"] if preferred else "forward",
         "max_date": preferred["max_date"] if preferred else None,
         "filter_defaults": FilterOptions.for_market(market).model_dump(),
     }
@@ -89,7 +100,19 @@ def source_for(market, source):
     return context_data(market)["default_source"]
 
 
-def get_run(db, identifier, market):
+def scan_query(market: str, source: str = "", adjustment: str = "forward"):
+    ensure_market(market)
+    query = select(Run).where(
+        Run.kind == "scan",
+        Run.market == market,
+        func.coalesce(Run.details["adjustment"].as_string(), "forward") == adjustment,
+    )
+    if source:
+        query = query.where(Run.details["source"].as_string() == source)
+    return query
+
+
+def get_run(db, identifier, market, source="", adjustment="forward"):
     ensure_market(market)
     run = db.get(Run, identifier)
     if run is None:
@@ -98,12 +121,18 @@ def get_run(db, identifier, market):
         except ValueError:
             raise HTTPException(404, "扫描批次不存在") from None
         run = db.scalar(
-            select(Run)
-            .where(Run.kind == "scan", Run.market == market, Run.market_date == day)
+            scan_query(market, source, adjustment)
+            .where(Run.market_date == day)
             .order_by(Run.started_at.desc())
             .limit(1)
         )
-    if run is None or run.kind != "scan" or run.market != market:
+    if (
+        run is None
+        or run.kind != "scan"
+        or run.market != market
+        or (source and run.details.get("source") != source)
+        or run.details.get("adjustment", "forward") != adjustment
+    ):
         raise HTTPException(404, "该市场没有这个扫描批次")
     return run
 
@@ -187,6 +216,7 @@ def safe_worker(run_id, payload):
         scan(
             payload.date,
             payload.source,
+            payload.adjustment,
             market=payload.market,
             filters=payload.filters,
             symbols=payload.symbols,
@@ -197,11 +227,17 @@ def safe_worker(run_id, payload):
 
 
 def stock_signals(
-    symbol: str, market: str = "CN", source: str = "", limit: int = 180
+    symbol: str,
+    market: str = "CN",
+    source: str = "",
+    limit: int = 180,
+    adjustment: str = "forward",
+    target: date | None = None,
 ) -> list[dict]:
     symbol = normalize_symbol(symbol)
     ensure_market(market)
-    chosen = source_for(market, source) if source else ""
+    chosen = source_for(market, source)
+    target = bounded_day(target)
     with session() as db:
         security = db.get(Security, symbol)
         if security is None or security.market != market:
@@ -209,7 +245,14 @@ def stock_signals(
         rows = db.execute(
             select(ScanResult, Run)
             .join(Run, Run.id == ScanResult.run_id)
-            .where(ScanResult.symbol == symbol, Run.market == market, Run.kind == "scan")
+            .where(
+                ScanResult.symbol == symbol,
+                Run.market == market,
+                Run.kind == "scan",
+                Run.details["source"].as_string() == chosen,
+                func.coalesce(Run.details["adjustment"].as_string(), "forward") == adjustment,
+                ScanResult.trade_date <= target,
+            )
             .order_by(ScanResult.trade_date.desc(), Run.started_at.desc())
             .limit(max(1, min(limit, 500)) * 3)
         ).all()
@@ -244,6 +287,7 @@ class ScanInput(BaseModel):
     market: str
     date: date
     source: str
+    adjustment: Literal["forward", "none", "backward"] = "forward"
     symbols: list[str] | None = None
     filters: dict | None = None
 
@@ -262,12 +306,17 @@ def create_app():
     async def same_origin(request: Request, call_next):
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
-            if origin and origin not in {
+            allowed = {
                 "http://127.0.0.1:5178",
                 "http://localhost:5178",
                 "http://127.0.0.1:8188",
                 "http://localhost:8188",
-            }:
+            }
+            # A local deployment may select another port. Allow its own origin,
+            # while retaining the loopback boundary and the explicit dev proxy.
+            if request.url.hostname in {"127.0.0.1", "localhost", "::1"}:
+                allowed.add(str(request.base_url).rstrip("/"))
+            if origin and origin not in allowed:
                 from fastapi.responses import JSONResponse
 
                 return JSONResponse({"detail": "请从本机控制台操作"}, status_code=403)
@@ -296,41 +345,61 @@ def create_app():
         return {"database": "mysql", "migration": revision, "status": "ok"}
 
     @app.get("/api/scan/summaries")
-    def scan_summaries(market: str = "CN"):
+    def scan_summaries(market: str = "CN", source: str = "", adjustment: str = "forward"):
         ensure_market(market)
         with session() as db:
             runs = db.scalars(
-                select(Run)
-                .where(Run.kind == "scan", Run.market == market)
-                .order_by(Run.started_at.desc())
-                .limit(200)
+                scan_query(market, source, adjustment).order_by(Run.started_at.desc()).limit(200)
             ).all()
             return [summary(run, result_rows(db, run)) for run in runs]
 
+    @app.get("/api/scan/dates")
+    def scan_dates(market: str, source: str = "", adjustment: str = "forward"):
+        ensure_market(market)
+        if adjustment not in {"forward", "none", "backward"}:
+            raise HTTPException(422, "请选择有效的复权方式")
+        return cached_dates(market, source, adjustment)
+
     @app.post("/api/scan/run")
     def launch(payload: ScanInput):
+        bounded_day(payload.date)
         ensure_market(payload.market)
         FilterOptions.for_market(payload.market, payload.filters)
         if not payload.source:
             raise HTTPException(422, "该市场尚未导入行情，请先通过 CLI 更新数据")
         if payload.symbols:
             payload.symbols = [normalize_symbol(s) for s in payload.symbols]
-        run_id = create_run(payload.date, payload.market, payload.source, payload.filters)
+        if not has_cached_equities(
+            payload.date, payload.market, payload.source, payload.adjustment, payload.symbols
+        ):
+            raise HTTPException(
+                422, "所选市场、来源和复权在该交易日没有可扫描的股票缓存，请选择有缓存的日期"
+            )
+        run_id = create_run(
+            payload.date, payload.market, payload.source, payload.filters, payload.adjustment
+        )
         EXECUTOR.submit(safe_worker, run_id, payload)
         return {"run_id": run_id, "status": "queued"}
 
     @app.get("/api/scan/{identifier}/summary")
-    def scan_summary(identifier: str, market: str = "CN"):
+    def scan_summary(
+        identifier: str, market: str = "CN", source: str = "", adjustment: str = "forward"
+    ):
         with session() as db:
-            run = get_run(db, identifier, market)
+            run = get_run(db, identifier, market, source, adjustment)
             return summary(run, result_rows(db, run))
 
     @app.get("/api/scan/{identifier}/results")
     def scan_results(
-        identifier: str, market: str = "CN", min_resonance: int = 1, industry: str | None = None
+        identifier: str,
+        market: str = "CN",
+        min_resonance: int = 1,
+        industry: str | None = None,
+        source: str = "",
+        adjustment: str = "forward",
     ):
         with session() as db:
-            run = get_run(db, identifier, market)
+            run = get_run(db, identifier, market, source, adjustment)
             return [
                 r
                 for r in result_rows(db, run)
@@ -339,9 +408,9 @@ def create_app():
             ]
 
     @app.get("/api/scan/{identifier}/events")
-    def events(identifier: str, market: str = "CN"):
+    def events(identifier: str, market: str = "CN", source: str = "", adjustment: str = "forward"):
         with session() as db:
-            run = get_run(db, identifier, market)
+            run = get_run(db, identifier, market, source, adjustment)
             rows = db.scalars(
                 select(RunEvent).where(RunEvent.run_id == run.id).order_by(RunEvent.id)
             ).all()
@@ -363,9 +432,9 @@ def create_app():
             }
 
     @app.get("/api/scan/{identifier}/sectors")
-    def sectors(identifier: str, market: str = "CN"):
+    def sectors(identifier: str, market: str = "CN", source: str = "", adjustment: str = "forward"):
         with session() as db:
-            run = get_run(db, identifier, market)
+            run = get_run(db, identifier, market, source, adjustment)
             groups = defaultdict(list)
             for r in result_rows(db, run):
                 groups[r["industry"] or "未知"].append(r)
@@ -388,6 +457,7 @@ def create_app():
         source: str = "",
         days: int = 120,
         endDate: date | None = None,
+        adjustment: str = "forward",
     ):
         symbol = normalize_symbol(symbol)
         with session() as db:
@@ -396,7 +466,10 @@ def create_app():
                 raise HTTPException(404, "该市场没有此标的")
             src = source_for(market, source)
             query = select(DailyBar).where(
-                DailyBar.symbol == symbol, DailyBar.source == src, DailyBar.adjustment == "forward"
+                DailyBar.symbol == symbol,
+                DailyBar.source == src,
+                DailyBar.adjustment == adjustment,
+                DailyBar.trade_date <= bounded_day(endDate),
             )
             if endDate:
                 query = query.where(DailyBar.trade_date <= endDate)
@@ -427,15 +500,23 @@ def create_app():
         ]
 
     @app.get("/api/stocks/{symbol}/profile")
-    def profile(symbol: str, market: str = "CN", source: str = ""):
+    def profile(
+        symbol: str,
+        market: str = "CN",
+        source: str = "",
+        adjustment: str = "forward",
+        endDate: date | None = None,
+    ):
         symbol = normalize_symbol(symbol)
         with session() as db:
             s = db.get(Security, symbol)
             if s is None or s.market != market:
                 raise HTTPException(404, "标的不存在于当前市场")
-            bars = kline(symbol, market, source, 1)
+            bars = kline(symbol, market, source, 1, endDate, adjustment)
             latest_bar = bars[-1] if bars else {}
-            signals = stock_signals(symbol, market, source, limit=1)
+            signals = stock_signals(
+                symbol, market, source, limit=1, adjustment=adjustment, target=endDate
+            )
             latest_signal = signals[-1] if signals else {}
             return {
                 "code": s.symbol,
@@ -451,7 +532,12 @@ def create_app():
                 "dataDays": db.scalar(
                     select(func.count())
                     .select_from(DailyBar)
-                    .where(DailyBar.symbol == symbol, DailyBar.source == source_for(market, source))
+                    .where(
+                        DailyBar.symbol == symbol,
+                        DailyBar.source == source_for(market, source),
+                        DailyBar.adjustment == adjustment,
+                        DailyBar.trade_date <= bounded_day(endDate),
+                    )
                 ),
                 "latestQuote": latest_bar,
                 "latestScan": {
@@ -463,8 +549,15 @@ def create_app():
             }
 
     @app.get("/api/stocks/{symbol}/signals")
-    def signals(symbol: str, market: str = "CN", source: str = "", limit: int = 180):
-        return stock_signals(symbol, market, source, limit)
+    def signals(
+        symbol: str,
+        market: str = "CN",
+        source: str = "",
+        limit: int = 180,
+        adjustment: str = "forward",
+        endDate: date | None = None,
+    ):
+        return stock_signals(symbol, market, source, limit, adjustment, endDate)
 
     @app.get("/api/portfolio/accounts")
     def portfolio_accounts():
@@ -500,6 +593,7 @@ def create_app():
         min_avg_volume: float | None = None,
         min_listed_days: int | None = None,
         limit_pct: float = 0.095,
+        adjustment: Literal["forward", "none", "backward"] = "forward",
     ):
         from tradeguard.screening.pool import filter_pool
 
@@ -524,6 +618,7 @@ def create_app():
                 else FilterOptions.for_market(market).min_listed_days,
                 "limit_pct": limit_pct,
             },
+            adjustment,
         )
 
     web = Path(__file__).resolve().parents[2] / "web" / "dist"
