@@ -14,7 +14,7 @@ Run from the installed TradeGuard checkout (`uv run tradeguard ...`) or use the 
 1. `tradeguard doctor` checks the local installation and database.
 2. `tradeguard market quality --date YYYY-MM-DD --source SOURCE` checks stored coverage. Its universe is stored securities, not proof of whole-market coverage.
 3. `tradeguard market sync --date YYYY-MM-DD --symbol 600000.SH` fetches a bounded CN historical window using optional baostock dependencies. Without symbols it requests the provider's Shanghai/Shenzhen A-share universe.
-4. `tradeguard scan run --date YYYY-MM-DD --source SOURCE` generates technical candidates, with data-readiness checks. It does not implement a full tradability filter or fundamental ranking.
+4. `tradeguard scan run --date YYYY-MM-DD --source SOURCE` generates technical candidates, with data-readiness checks. It applies the configured tradability filters; it does not implement fundamental ranking.
 5. `tradeguard scan results RUN_ID` reads a saved batch.
 6. `tradeguard research save --file report.json` saves a report with primary-source evidence.
 
@@ -29,3 +29,7 @@ Analyze the supply chain and test growth, profitability, barriers and bargaining
 An industry report should state the hypothesis, supporting/contradicting metrics, update cadence and risks. A company report should include valuation assumptions and risks, with links next to claims. Source-only questions do not need a stock rating. A technical scan match is a research candidate, not a recommendation or an order.
 
 When the user intends to act, use trading-discipline with explicit personal rules and a fresh account snapshot. Do not infer approval from the research conclusion.
+
+## 每日 Top 5
+
+当用户请求基于扫描的每日推荐、候选排序或 Top 5 时，遵循 [本地每日研究流程](references/daily-top5.md)。先冻结扫描证据，再由 Agent 比较、写明风险与失效条件并保存；平台只展示结果，不在网页中运行模型。

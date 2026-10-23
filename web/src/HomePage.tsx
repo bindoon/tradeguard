@@ -10,9 +10,10 @@ import {
 } from "./workspaceApi";
 import { STRATEGY_MAP } from "./strategies";
 import WatchButton from "./WatchButton";
+import ResearchShortlist from "./ResearchShortlist";
 import EmptyMarket from "./EmptyMarket";
 export default function HomePage(props: SelectionNavProps) {
-  const { market, source, adjustment } = useMarket();
+  const { market, source, adjustment, info } = useMarket();
   const [data, setData] = useState<Workspace | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -44,6 +45,18 @@ export default function HomePage(props: SelectionNavProps) {
   const report = data?.report;
   const currency = market === "CN" ? "CNY" : market === "US" ? "USD" : "HKD";
   const changes = report?.changes_vs_previous_day;
+  const availableScans = (info?.sources || [])
+    .filter(
+      (s) => s.scan_count > 0 && (s.source !== source || s.adjustment !== adjustment),
+    )
+    .sort((a, b) =>
+      (b.latest_scan_date || "").localeCompare(a.latest_scan_date || ""),
+    );
+  const currentCache = info?.sources.find(
+    (s) => s.source === source && s.adjustment === adjustment,
+  );
+  const adjustmentLabel = (value: string) =>
+    value === "forward" ? "前复权" : value === "backward" ? "后复权" : "不复权";
   return (
     <SelectionShell {...props} currentSection="home">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -87,6 +100,33 @@ export default function HomePage(props: SelectionNavProps) {
         </p>
       )}
       {!loading && !source && <EmptyMarket />}
+      {source && !loading && !error && !report && availableScans.length > 0 && (
+        <section
+          className="tg-panel border-amber-400/40"
+          aria-label="已有扫描可查看"
+        >
+          <h2 className="tg-title">本地已有扫描，当前选中的来源没有记录</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            当前是 {source} · {adjustmentLabel(adjustment)}，缓存截止 {currentCache?.max_date || "未知"}。
+            切换到下面的来源即可查看已保存的候选，无需重新扫描。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {availableScans.map((s) => (
+              <button
+                key={s.source + s.adjustment}
+                className="tg-primary"
+                onClick={() =>
+                  openPath(scopedPath("/", {
+                    source: s.source, adjustment: s.adjustment,
+                  }))
+                }
+              >
+                查看 {s.source} · {adjustmentLabel(s.adjustment)} · {s.latest_scan_date} · {s.scan_count} 次扫描 →
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {source && !loading && !error && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -103,7 +143,9 @@ export default function HomePage(props: SelectionNavProps) {
                 report
                   ? regimeLabel[report.market_regime] || "证据不足"
                   : "未知",
-                "缺少基准时保持未知",
+                report?.market_regime === "bear"
+                  ? "基准处于弱势，先复核风险再研究候选"
+                  : "依据同源基准；缺少基准时保持未知",
               ],
               [
                 "策略命中 / 共振",
@@ -217,6 +259,7 @@ export default function HomePage(props: SelectionNavProps) {
               </div>
             )}
           </details>
+          <ResearchShortlist report={data?.recommendation || null} latestScanDate={report?.trade_date} />
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
             <section className="tg-panel">
               <div className="flex justify-between">
@@ -232,6 +275,13 @@ export default function HomePage(props: SelectionNavProps) {
                   扫描明细 →
                 </button>
               </div>
+              {report && (
+                <p className="mt-3 text-xs leading-6 text-slate-400">
+                  {report.source} · {adjustmentLabel(report.adjustment)} · 已扫描 {report.counts.scanned.toLocaleString()} / {report.counts.universe.toLocaleString()} 个标的，
+                  {report.counts.hits} 只命中，以下展示共振排序前 {Math.min(8, report.top_resonance.length)} 只。
+                  {report.status !== "success" && "本次部分完成，完整情况见扫描明细。"}
+                </p>
+              )}
               {!report ? (
                 <p className="tg-muted">
                   本市场、来源和复权尚无扫描结果。可以在每日扫描中选择已保存行情执行。

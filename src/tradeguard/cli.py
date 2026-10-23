@@ -460,3 +460,61 @@ def public_export(
             output_dir,
         )
     )
+
+
+@research.command("prepare")
+def research_prepare(
+    date: Annotated[str, typer.Option()],
+    source: Annotated[str, typer.Option()],
+    market: str = "CN",
+    adjustment: str = "forward",
+):
+    """Freeze all scan candidates and their evidence for a local agent to rank."""
+    from tradeguard.research.recommendations import prepare
+    from tradeguard.workspace.schemas import Scope
+
+    output(
+        lambda: prepare(
+            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment}),
+            day(date),
+        )
+    )
+
+
+@research.command("shortlist-save")
+def research_shortlist_save(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    """Validate and save an agent-authored shortlist against its frozen evidence pack."""
+    from tradeguard.research.recommendations import Submission, submit
+
+    output(lambda: submit(Submission.model_validate(load(file))))
+
+
+@research.command("shortlist")
+def research_shortlist(
+    source: Annotated[str, typer.Option()],
+    market: str = "CN",
+    adjustment: str = "forward",
+    date: str | None = None,
+):
+    """Read the most recent saved shortlist at or before the requested day."""
+    from tradeguard.research.recommendations import latest
+    from tradeguard.workspace.schemas import Scope
+
+    output(
+        lambda: {
+            "recommendation": latest(
+                Scope.model_validate(
+                    {"market": market, "source": source, "adjustment": adjustment}
+                ),
+                day(date) if date else None,
+            )
+        }
+    )
+
+
+@research.command("shortlist-schema")
+def research_shortlist_schema():
+    """Return the agent submission contract without reading private data."""
+    from tradeguard.research.recommendations import Submission
+
+    output(Submission.model_json_schema)

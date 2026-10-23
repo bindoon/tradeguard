@@ -100,7 +100,22 @@ export interface CheckResult {
   warnings: string[];
   metrics: Record<string, string>;
 }
+export interface Recommendation {
+  scope: { market: "CN" | "US" | "HK"; source: string; adjustment: string };
+  report_id: string;
+  trade_date: string;
+  author: string;
+  methodology: string;
+  summary: string;
+  created_at: string;
+  scan_status: string;
+  limitations: string[];
+  abstention_reason: string | null;
+  picks: { rank: number; symbol: string; thesis: string; risks: string[]; invalidation: string; next_step: string; evidence_ids: string[]; evidence: Pick & { strategy_details: unknown[] } }[];
+  alternatives: { symbol: string; reason: string }[];
+}
 export interface Workspace {
+  recommendation: Recommendation | null;
   as_of: string;
   report: DailyReport | null;
   watchlist: Watch[];

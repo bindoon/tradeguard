@@ -81,14 +81,6 @@ export default function SelectionShell({
       onClick: () => openPath(scopedPath("/watchlist")),
     },
     {
-      key: "alerts" as const,
-      title: "提醒记录",
-      subtitle: "价格条件与证据待更新",
-      badge: "INBOX",
-      accent: "blue",
-      onClick: () => openPath(scopedPath("/alerts")),
-    },
-    {
       key: "scan" as const,
       title: "每日扫描",
       subtitle: "查看每日扫描与共振结果",

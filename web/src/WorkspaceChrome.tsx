@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { openPath, scopedPath, useMarket } from "./MarketContext";
 import { searchStocks } from "./workspaceApi";
+import NotificationBell from "./NotificationBell";
 type SearchResult = Awaited<ReturnType<typeof searchStocks>>;
 type StockTab = { path: string; label: string };
 const KEY = "tradeguard-stock-tabs-v1";
@@ -136,6 +137,7 @@ export default function WorkspaceChrome() {
           搜索股票{" "}
           <kbd className="ml-2 text-xs text-slate-500">⌘K / Ctrl+K</kbd>
         </button>
+        <NotificationBell />
       </div>
       {open && (
         <div

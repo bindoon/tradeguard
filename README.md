@@ -175,3 +175,17 @@ python3 -m http.server 8191 --bind 127.0.0.1 --directory dist/public-2026-10-22
 示例日期需要替换成已存行情日。导出文件只有独立的 `index.html`：白名单字段包含公开证券名称、行业、同源历史行情、当日策略名称与扫描计数；不含账户、持仓、条件单、自选/研究备注、个人规则、原话或内部运行日志。页面保留日期、来源、复权和缺口，提供项目关注与本地部署入口；不调用个人 API，也不需要运行 Python/MySQL。当前只提供包和本地预览，没有自动上传或修改线上站点。
 
 源码公开前，仍需解决 [provenance](docs/provenance.md) 中记录的来源权利和项目许可证。当前改动未复制 OpenStock 代码，也未修改仓库可见性。
+
+## 本地 Agent 每日研究 Top 5
+
+Codex 负责分析，控制台展示详细依据。先读取指定交易日、来源和复权的全部命中，冻结证据包；Agent 比较候选并写明排序方法、理由、反证、失效条件和下一步，提交后首页展示同一报告。缺乏证据时允许少于五只或空名单。不会自动调用付费模型或创建定时任务。
+
+```bash
+uv run tradeguard research prepare --market CN --source baostock --adjustment forward --date 2026-10-22 > private/evidence.json
+uv run tradeguard research shortlist-schema
+# 由本地 Agent 阅读证据、按 schema 编写 private/shortlist.json
+uv run tradeguard research shortlist-save --file private/shortlist.json
+uv run tradeguard research shortlist --market CN --source baostock --adjustment forward
+```
+
+日期是示例。早晨任务应明确选择最近已完成、已扫描的交易日，不能遇休市仍机械减一天。流程与研究框架见 [每日研究 Top 5](skills/stock-analyst/references/daily-top5.md)。扫描引用校验保证股票属于证据包，不保证自然语言推理正确；个人买入资格仍需显式规则、新鲜持仓和拟交易检查。

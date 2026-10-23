@@ -508,6 +508,8 @@ def position_reviews(scope: Scope) -> list[dict]:
 
 
 def overview(scope: Scope, target: date | None = None) -> dict:
+    from tradeguard.research.recommendations import latest
+
     target = bounded_day(target)
     with session() as db:
         summary = db.scalar(
@@ -549,6 +551,7 @@ def overview(scope: Scope, target: date | None = None) -> dict:
         "scope": scope.model_dump(),
         "as_of": now().isoformat(),
         "report": report,
+        "recommendation": latest(scope, target),
         "watchlist": watches(scope, target),
         "position_reviews": position_reviews(scope),
         "notifications": inbox(scope),
