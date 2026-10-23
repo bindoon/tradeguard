@@ -124,6 +124,7 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/tradeguard
 uv run pytest -q
+pnpm --dir web test
 pnpm --dir web build
 ```
 

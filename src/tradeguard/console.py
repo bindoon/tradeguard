@@ -52,8 +52,9 @@ def ensure_market(market):
 def context_data(market):
     ensure_market(market)
     with session() as db:
-        securities = db.scalar(
-            select(func.count()).select_from(Security).where(Security.market == market)
+        securities = (
+            db.scalar(select(func.count()).select_from(Security).where(Security.market == market))
+            or 0
         )
         rows = db.execute(
             select(
@@ -67,7 +68,14 @@ def context_data(market):
             .join(Security, Security.symbol == DailyBar.symbol)
             .where(Security.market == market, DailyBar.trade_date <= today())
             .group_by(DailyBar.source, DailyBar.adjustment)
-            .with_hint(DailyBar, "FORCE INDEX (ix_daily_bar_source_adjustment_date)", "mysql")
+            # Small universes must seek their symbols, not scan millions of CN bars.
+            .with_hint(
+                DailyBar,
+                "FORCE INDEX (PRIMARY)"
+                if securities <= 512
+                else "FORCE INDEX (ix_daily_bar_source_adjustment_date)",
+                "mysql",
+            )
         ).all()
         activity = source_activity(db, market)
     sources = [

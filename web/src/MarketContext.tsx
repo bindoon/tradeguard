@@ -3,8 +3,11 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   ReactNode,
 } from "react";
+import { RefreshCw } from "lucide-react";
+import { marketInfoCache } from "./marketInfoCache";
 export type Market = "CN" | "US" | "HK";
 export interface SourceInfo {
   source: string;
@@ -35,6 +38,8 @@ interface Context {
   setMarket: (market: Market) => void;
   setSource: (source: string, adjustment?: string) => void;
   error: string | null;
+  refreshing: boolean;
+  refreshMarket: () => void;
 }
 const Store = createContext<Context | null>(null);
 export function activeMarket(): Market {
@@ -70,126 +75,161 @@ export function openPath(path: string) {
   history.pushState(null, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
+type Selection = {
+  market: Market;
+  source: string;
+  adjustment: string;
+  info: MarketInfo | null;
+};
+
+function requestedMarket(): Market {
+  const params = new URLSearchParams(location.search);
+  const ticker = decodeURIComponent(location.pathname.split("/").pop() || "");
+  const requested =
+    params.get("market") ||
+    (location.pathname.startsWith("/stock/")
+      ? ticker.endsWith(".US")
+        ? "US"
+        : ticker.endsWith(".HK")
+          ? "HK"
+          : "CN"
+      : activeMarket());
+  return requested === "US" || requested === "HK" ? requested : "CN";
+}
+
+function selectMarket(
+  market: Market,
+  info = marketInfoCache.peek(market),
+): Selection {
+  const params = new URLSearchParams(location.search);
+  const explicit = requestedMarket() === market && params.get("source");
+  const saved = sessionStorage.getItem("tradeguard-source-" + market) || "";
+  const adjustment =
+    sessionStorage.getItem("tradeguard-adjustment-" + market) || "forward";
+  const chosen =
+    info?.sources.find(
+      (s) => s.source === saved && s.adjustment === adjustment,
+    ) ||
+    info?.sources.find(
+      (s) =>
+        s.source === info.default_source &&
+        s.adjustment === info.default_adjustment,
+    ) ||
+    info?.sources[0];
+  const source = explicit || (info ? chosen?.source || "" : saved);
+  const adj = explicit
+    ? params.get("adjustment") || "forward"
+    : info
+      ? chosen?.adjustment || "forward"
+      : adjustment;
+  sessionStorage.setItem("tradeguard-market", market);
+  sessionStorage.setItem("tradeguard-source-" + market, source);
+  sessionStorage.setItem("tradeguard-adjustment-" + market, adj);
+  return { market, source, adjustment: adj, info };
+}
+
 export function MarketProvider({ children }: { children: ReactNode }) {
-  const [market, changeMarket] = useState<Market>(activeMarket);
-  const [source, changeSource] = useState("");
-  const [adjustment, changeAdjustment] = useState(activeAdjustment);
-  const [info, setInfo] = useState<MarketInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [selection, setSelection] = useState(() =>
+    selectMarket(requestedMarket()),
+  );
+  const { market, source, adjustment, info } = selection;
+  const [failure, setFailure] = useState<{
+    market: Market;
+    message: string;
+  } | null>(null);
+  const error = failure?.market === market ? failure.message : null;
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const forceNext = useRef(false);
   function setMarket(next: Market) {
-    sessionStorage.setItem("tradeguard-market", next);
-    changeMarket(next);
+    if (next === market) return;
+    setFailure(null);
+    setSelection(selectMarket(next));
   }
   function setSource(next: string, adj = "forward") {
     sessionStorage.setItem("tradeguard-source-" + market, next);
     sessionStorage.setItem("tradeguard-adjustment-" + market, adj);
-    changeSource(next);
-    changeAdjustment(adj);
+    setSelection((current) => ({ ...current, source: next, adjustment: adj }));
+  }
+  function refreshMarket() {
+    forceNext.current = true;
+    setRefreshTick((n) => n + 1);
   }
   useEffect(() => {
     const readUrl = () => {
-      const params = new URLSearchParams(location.search);
-      const ticker = decodeURIComponent(
-        location.pathname.split("/").pop() || "",
+      const next = requestedMarket();
+      setSelection((current) =>
+        selectMarket(
+          next,
+          current.market === next ? current.info : marketInfoCache.peek(next),
+        ),
       );
-      const requested =
-        params.get("market") ||
-        (location.pathname.startsWith("/stock/")
-          ? ticker.endsWith(".US")
-            ? "US"
-            : ticker.endsWith(".HK")
-              ? "HK"
-              : "CN"
-          : activeMarket());
-      const selected: Market =
-        requested === "US" || requested === "HK" ? requested : "CN";
-      sessionStorage.setItem("tradeguard-market", selected);
-      changeMarket(selected);
-      const src = params.get("source");
-      const adj = params.get("adjustment");
-      if (src) {
-        sessionStorage.setItem("tradeguard-source-" + selected, src);
-        changeSource(src);
-      }
-      if (adj) {
-        sessionStorage.setItem("tradeguard-adjustment-" + selected, adj);
-        changeAdjustment(adj);
-      }
     };
-    readUrl();
     window.addEventListener("popstate", readUrl);
     return () => window.removeEventListener("popstate", readUrl);
   }, []);
   useEffect(() => {
     let disposed = false;
-    sessionStorage.setItem("tradeguard-market", market);
-    setLoading(true);
-    setError(null);
-    setInfo(null);
-    fetch("/api/context?market=" + market)
-      .then(async (r) => {
-        if (!r.ok)
-          throw new Error("无法读取市场数据，请检查本地服务与数据库迁移");
-        return r.json() as Promise<MarketInfo>;
-      })
+    const force = forceNext.current;
+    forceNext.current = false;
+    setRefreshing(true);
+    setFailure(null);
+    marketInfoCache
+      .load(market, force)
       .then((data) => {
-        if (disposed) return;
-        setInfo(data);
-        const saved = sessionStorage.getItem("tradeguard-source-" + market);
-        const adj =
-          sessionStorage.getItem("tradeguard-adjustment-" + market) ||
-          "forward";
-        const selected =
-          data.sources.find(
-            (s) => s.source === saved && s.adjustment === adj,
-          ) ||
-          data.sources.find(
-            (s) =>
-              s.source === data.default_source &&
-              s.adjustment === data.default_adjustment,
-          ) ||
-          data.sources[0];
-        // Preserve an explicit unavailable scope so a historical link cannot silently switch source.
-        const params = new URLSearchParams(location.search);
-        if (params.get("market") === market && params.get("source"))
-          setSource(
-            params.get("source")!,
-            params.get("adjustment") || "forward",
+        if (!disposed)
+          setSelection((current) =>
+            current.market === market ? selectMarket(market, data) : current,
           );
-        else
-          setSource(selected?.source || "", selected?.adjustment || "forward");
       })
       .catch((e) => {
-        if (!disposed) setError(String(e.message));
+        if (!disposed)
+          setFailure({
+            market,
+            message: e instanceof Error ? e.message : "市场状态读取失败",
+          });
       })
       .finally(() => {
-        if (!disposed) setLoading(false);
+        if (!disposed) setRefreshing(false);
       });
     return () => {
       disposed = true;
     };
-  }, [market]);
+  }, [market, refreshTick]);
   return (
     <Store.Provider
-      value={{ market, source, adjustment, info, setMarket, setSource, error }}
+      value={{
+        market,
+        source,
+        adjustment,
+        info,
+        setMarket,
+        setSource,
+        error,
+        refreshMarket,
+        refreshing,
+      }}
     >
-      {loading ? (
-        <div className="min-h-screen bg-slate-950 p-10 text-slate-300">
-          正在读取 {market} 市场与缓存状态…
-        </div>
-      ) : error ? (
-        <div
-          role="alert"
-          className="min-h-screen bg-slate-950 p-10 text-red-300"
-        >
-          {error}
-          <button className="ml-4 underline" onClick={() => location.reload()}>
-            重试
-          </button>
-        </div>
-      ) : (
+      {info ? (
         children
+      ) : (
+        <div className="min-h-screen space-y-4 bg-slate-950 p-4 text-slate-300 sm:p-6">
+          <MarketBar />
+          <div
+            role={error ? "alert" : "status"}
+            className="rounded-xl border border-slate-800 p-6 text-sm"
+          >
+            {error || `正在读取 ${market} 市场与缓存状态…`}
+            {error && (
+              <button
+                className="ml-4 text-emerald-300 underline"
+                onClick={refreshMarket}
+              >
+                重试
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </Store.Provider>
   );
@@ -200,8 +240,17 @@ export function useMarket() {
   return value;
 }
 export function MarketBar() {
-  const { market, source, adjustment, info, setMarket, setSource } =
-    useMarket();
+  const {
+    market,
+    source,
+    adjustment,
+    info,
+    setMarket,
+    setSource,
+    error,
+    refreshing,
+    refreshMarket,
+  } = useMarket();
   const current = info?.sources.find(
     (s) => s.source === source && s.adjustment === adjustment,
   );
@@ -279,9 +328,28 @@ export function MarketBar() {
           </>
         ) : (
           <span>
-            当前市场尚无行情。可通过 CLI 导入或同步，不填充其他市场数据。
+            {info
+              ? "当前市场尚无行情，可通过 CLI 导入或同步。"
+              : "正在读取市场状态…"}
           </span>
         )}
+        {error && info && (
+          <span role="status" className="text-amber-300">
+            状态更新失败，保留上次读取结果
+          </span>
+        )}
+        <button
+          type="button"
+          aria-label="刷新市场缓存状态"
+          title="重新读取当前市场的缓存范围与扫描次数"
+          disabled={refreshing}
+          onClick={refreshMarket}
+          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
+        >
+          <RefreshCw
+            className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+          />
+        </button>
       </div>
     </div>
   );

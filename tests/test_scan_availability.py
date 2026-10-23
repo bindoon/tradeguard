@@ -109,3 +109,36 @@ def test_empty_scan_is_rejected_before_a_background_job_is_created(database):
     with session() as db:
         assert db.scalar(select(func.count()).select_from(Run)) == before
         assert db.scalar(select(func.count()).select_from(Run).where(Run.kind == "scan")) == 0
+
+
+def test_small_market_context_is_empty_until_its_own_bars_are_saved(database):
+    day = date(2025, 6, 20)
+    save_bars([bar("600000.SH", day)])
+    with session() as db, db.begin():
+        db.add_all(
+            [
+                Security(symbol="00700.HK", name="Synthetic HK", market="HK", currency="HKD"),
+                Security(symbol="AAPL.US", name="Synthetic US", market="US", currency="USD"),
+            ]
+        )
+    client = TestClient(create_app())
+    for market, symbol, currency in [("HK", "00700.HK", "HKD"), ("US", "AAPL.US", "USD")]:
+        before = client.get("/api/context", params={"market": market}).json()
+        assert before["security_count"] == 1
+        assert before["currency"] == currency
+        assert before["sources"] == []
+        assert before["default_source"] == ""
+        save_bars([bar(symbol, day)])
+        after = client.get("/api/context", params={"market": market}).json()
+        assert after["sources"] == [
+            {
+                "source": "baostock",
+                "adjustment": "forward",
+                "rows": 1,
+                "symbols": 1,
+                "min_date": str(day),
+                "max_date": str(day),
+                "scan_count": 0,
+                "latest_scan_date": None,
+            }
+        ]
