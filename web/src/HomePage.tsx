@@ -10,6 +10,7 @@ import {
 } from "./workspaceApi";
 import { STRATEGY_MAP } from "./strategies";
 import WatchButton from "./WatchButton";
+import EmptyMarket from "./EmptyMarket";
 export default function HomePage(props: SelectionNavProps) {
   const { market, source, adjustment } = useMarket();
   const [data, setData] = useState<Workspace | null>(null);
@@ -52,7 +53,7 @@ export default function HomePage(props: SelectionNavProps) {
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-white">每日工作台</h1>
           <p className="mt-2 text-sm text-slate-400">
-            先处理持仓，再筛选候选；每项判断都保留来源和证据时间。
+            查看最近一次扫描选出的股票，点开候选查看图表与命中原因。
           </p>
         </div>
         <button
@@ -85,18 +86,7 @@ export default function HomePage(props: SelectionNavProps) {
           </button>
         </p>
       )}
-      {!loading && !source && (
-        <section className="tg-panel">
-          <h2 className="tg-title">从本地行情开始</h2>
-          <p className="tg-muted">
-            当前市场尚无行情来源。通过 CLI
-            导入或同步明确标的后，可查看扫描、自选和图表。真实账户仍可单独查看。
-          </p>
-          <button className="tg-button" onClick={props.onPortfolio}>
-            查看真实账户
-          </button>
-        </section>
-      )}
+      {!loading && !source && <EmptyMarket />}
       {source && !loading && !error && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -143,7 +133,8 @@ export default function HomePage(props: SelectionNavProps) {
               </section>
             ))}
           </div>
-          <section className="tg-panel">
+          <details className="tg-panel">
+            <summary className="cursor-pointer font-medium text-slate-200">持仓复核 · {data?.position_reviews.filter((r) => r.decision !== "observe").length || 0} 项待处理（展开查看）</summary>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="tg-title">先看我的持仓 · 买卖复核</h2>
               <button
@@ -225,11 +216,11 @@ export default function HomePage(props: SelectionNavProps) {
                 ))}
               </div>
             )}
-          </section>
+          </details>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
             <section className="tg-panel">
               <div className="flex justify-between">
-                <h2 className="tg-title">今日观察 · 策略候选</h2>
+                <h2 className="tg-title">{report ? `${report.trade_date} 策略候选` : "策略候选"}</h2>
                 <button
                   className="text-sm text-cyan-300"
                   onClick={() =>
@@ -279,7 +270,7 @@ export default function HomePage(props: SelectionNavProps) {
                       </p>
                       {p.reasons[0] && (
                         <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
-                          {p.reasons[0]}
+                          {p.reasons[0].split("。：")[0]}
                         </p>
                       )}
                       <div className="mt-3">
