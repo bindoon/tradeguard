@@ -53,7 +53,7 @@ def accounts_view():
                 cost = p.average_cost * p.quantity if p.average_cost is not None else None
                 payload["positions"][i]["pnl"] = str(pnl) if pnl is not None else None
                 payload["positions"][i]["pnl_percent"] = (
-                    str(pnl / cost) if pnl is not None and cost else None
+                    str(pnl / cost) if pnl is not None and cost and cost > 0 else None
                 )
             items.append(
                 {

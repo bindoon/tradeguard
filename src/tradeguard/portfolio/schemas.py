@@ -18,7 +18,10 @@ class Position(StrictModel):
     currency: Literal["CNY", "USD", "HKD"]
     quantity: Decimal
     market_value: Decimal | None = None
-    average_cost: Decimal | None = Field(default=None, gt=0)
+    average_cost: Decimal | None = Field(
+        default=None,
+        description="Broker diluted cost; may be zero or negative after profitable partial sells",
+    )
     observed_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -101,7 +104,10 @@ class SnapshotInput(StrictModel):
 class PositionPatch(StrictModel):
     symbol: str
     quantity: Decimal | None = None
-    average_cost: Decimal | None = Field(default=None, gt=0)
+    average_cost: Decimal | None = Field(
+        default=None,
+        description="Broker diluted cost; may be zero or negative after profitable partial sells",
+    )
     market_value: Decimal | None = None
     name: str | None = None
     _symbol = field_validator("symbol")(normalize_symbol)
