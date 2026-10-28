@@ -1,35 +1,167 @@
 ---
 name: stock-analyst
-description: Research stocks, industries and primary financial sources; use TradeGuard for local market data and technical candidate screening. Covers A-share, Hong Kong and US research.
+description: 跨市场智能选股分析与一手数据溯源工具（A股 + 港股 + 美股）。也用于金融/产业新闻图表溯源、数据来源查询和题材指标发现；仅询问来源无需评级。当用户问到任何涉及股票投资、选股、行业趋势、板块/赛道分析、个股研究、某只股票值不值得买、哪些方向值得关注、本地扫描或每日 Top 5 时，立即使用此 skill。支持 A股、港股与美股、行业趋势扫描与个股深度分析两种模式。遇到这些关键词必须触发——A股侧："A股""选股""行业分析""板块""赛道""北向资金""值不值得买"，以及6位股票代码（如 600519、000001）或A股公司中文名；港股侧："港股""恒生"以及 .HK 代码；美股侧："美股""纳斯达克""标普""中概股""英伟达/特斯拉/苹果等美股公司"，以及字母 ticker（如 NVDA、AAPL、TSLA）。它只负责"选什么、贵不贵、行业趋势如何"并输出评级；"何时进场、动多大仓位、止损设在哪、是不是在犯老毛病"不在这里做——那是 trading-discipline 的职责。本地已入库行情和扫描用 TradeGuard，不在网页里跑模型。
 ---
 
-# Stock analyst
+# 跨市场智能选股分析工具（A股 + 港股 + 美股）
 
-Use this skill to investigate industry trends, company fundamentals, valuation or the origin of a financial claim. Research is separate from permission to place a trade.
+## 这个 skill 是干什么的（边界先讲清）
 
-## Tools
+它负责 **选什么、贵不贵、行业趋势如何 → 输出一个评级 + 核心逻辑 + 主要风险**。也负责金融与产业数据溯源、来源查询和持续取数方法；此类请求按需回答，不强制评级。
 
-Run from the installed TradeGuard checkout (`uv run tradeguard ...`) or use the installed `tradeguard` command. All successful commands emit a JSON envelope. Read status before data: partial is not full coverage.
+它**不负责**何时进场、动多大仓位、止损设在哪、是不是在犯老毛病——那是 `trading-discipline` 的活。
+分析完出了评级后，主动提示用户：**"评级出来了，要不要动手、动多大、止损在哪，去用 trading-discipline 过一遍。"**
 
-1. `tradeguard doctor` checks the local installation and database.
-2. `tradeguard market quality --date YYYY-MM-DD --source SOURCE` checks stored coverage. Its universe is stored securities, not proof of whole-market coverage.
-3. `tradeguard market sync --date YYYY-MM-DD --symbol 600000.SH` fetches a bounded CN historical window using optional baostock dependencies. Without symbols it requests the provider's Shanghai/Shenzhen A-share universe.
-4. `tradeguard scan run --date YYYY-MM-DD --source SOURCE` generates technical candidates, with data-readiness checks. It applies the configured tradability filters; it does not implement fundamental ranking.
-5. `tradeguard scan results RUN_ID` reads a saved batch.
-6. `tradeguard research save --file report.json` saves a report with primary-source evidence.
+---
 
-Use explicit market date, source and adjustment. Do not treat synthetic/example data as live prices. Sources may be delayed; retain observation period, disclosure date and retrieval time. Never silently replace a source or spend a paid data allowance.
+## 核心方法论（A股 / 港股 / 美股通用，不随市场变）
 
-## Research workflow
+研究题材、产业趋势、资金仓位或关键财务数字时，读取 [一手数据来源与溯源](references/data-sources.md)。先确定待验证假设与指标，再按原始来源取证；长桥是采集工具，一手源不以长桥失败为前提。单纯询问来源时直接回答来源与获取方法，不强制输出评级。
 
-Read [primary data sources](references/data-sources.md) for industry hypotheses, numeric claims and financial evidence. Prefer regulators, exchanges, company IR and original statistical releases; data tools are acquisition channels, not necessarily the primary publisher.
+整套逻辑基于 **产业链思维 × 三高筛选**，最终落到 **四层评分卡**。
 
-Analyze the supply chain and test growth, profitability, barriers and bargaining power. Evaluate macro conditions, competitive position, supply-chain position, and financial quality/valuation. Separate facts, forecasts and inference; describe counterevidence and missing data. Use the user's requested market; do not invent a ticker or infer a currency from a company name.
+### 产业链 × 三高
 
-An industry report should state the hypothesis, supporting/contradicting metrics, update cadence and risks. A company report should include valuation assumptions and risks, with links next to claims. Source-only questions do not need a stock rating. A technical scan match is a research candidate, not a recommendation or an order.
+1. **拆解产业链**：把目标行业拆成上中下游各环节，分析每个环节的结构特征。
+2. **三高筛选**：找出同时满足以下条件的关键环节——
+   - **高增长**：市场规模持续扩张，需求端有强驱动
+   - **高利润**：毛利率/净利率显著高于行业平均
+   - **高壁垒**：技术壁垒、专利、资质或网络效应构成护城河
+   - **高议价**：对上下游均有较强定价权
 
-When the user intends to act, use trading-discipline with explicit personal rules and a fresh account snapshot. Do not infer approval from the research conclusion.
+满足三高的环节，是整条链上利润最集中、竞争优势最稳固的位置。
+
+### 四层评分卡（输出骨架，各市场共用结构）
+
+| 层 | 看什么 | A股 / 港股 / 美股的输入差异 |
+|---|---|---|
+| 宏观层 | 行业所处的大环境是否顺风 | **整块换**：A股看政策/资金面，港股看南向与流动性，美股看美联储/产业法案 |
+| 竞争层 | 护城河、市占率、行业地位 | 通用 |
+| 产业链层 | 三高满足几项、所处环节是否最优 | 通用 |
+| 财务/估值层 | 盈利质量 + 估值贵不贵 | **整块换**：A股相对估值，港股按港币披露，美股估值体系更丰富、财报更可深挖 |
+
+> **资金证据的边界**：各市场都使用可验证的资金指标，不揣测庄家意图。A股区分交易所披露与供应商“大单/主力”估算，北向先核对当前披露制度；港股看交易所与公司原文，不把港币市值当成美元；美股区分13F季度快照、未平仓空头、ETF申赎与期权成交。历史持仓和成交信号不能直接证明当日机构加减仓。
+
+---
+
+## 两级路由（先选市场，再选模式）
+
+### 第 0 步：市场识别
+
+```
+6位数字代码（600519/000001/300xxx）、中文公司名、"沪深/A股/创业板/科创板/北向" → A股 → 读 references/a-share.md
+.HK、"港股/恒生"、以港币计价 → 港股 → 仍用四层评分卡；披露读 references/data-sources.md 的港交所条目，币种按 HKD，不套 A股涨跌停，也不套美股季报频率
+字母 ticker（NVDA/AAPL）、"美股/纳斯达克/标普/中概股"、以美元计价 → 美股 → 读 references/us-stock.md
+只说“想看看半导体”等题材探索 → 可先研究全球产业及一手指标；需要具体标的筛选时再明确 A股/港股/美股。
+```
+
+### 第 1 步：模式识别
+
+```
+"现在哪些行业/方向值得关注？资金/机构在哪里？" → 【模式一：行业趋势扫描】
+"XX 值不值得买？帮我分析 XXX"               → 【模式二：个股深度分析】
+仅探索方向、题材或来源 → 先做产业假设与指标清单，不强行进入个股评级。
+```
+
+### 第 2 步：执行
+
+读取对应市场的 reference，按其中的**搜索策略**取数，套用**四层评分卡**输出。各市场的输出格式相同（见下），只是各层的输入和雷区清单不同。港股没有单独手册时，沿用本文件的评分卡和一手来源目录，不把缺失写成中性结论。
+
+---
+
+## 统一输出格式
+
+### 模式一：行业趋势扫描
+
+```
+【宏观环境判断】
+一句话概括当前市场环境及主要驱动（A股：政策/资金风向；港股：流动性/南向；美股：利率周期/财报季情绪）
+
+【值得关注的赛道】（3-5个，按确信度排序）
+▌赛道名称
+  宏观催化：XXX（标注 [数据支撑] / [推断]）
+  资金/机构验证：XXX（标注来源、实际观测期及样本；区分披露与估算）
+  核心逻辑：产业链中哪个环节最受益（三高在哪）
+  风险提示：XXX
+
+【当前不建议碰的方向】
+1-2个：宏观退潮 / 资金流出 / 估值透支，说明原因
+
+【置信度说明】
+哪些有数据支撑，哪些是推断
+
+【一手指标与后续获取】
+指标 | 原始发布者/具体链接 | 更新频率/滞后 | 获取方式/权限 | 口径与缺口
+```
+
+### 模式二：个股深度分析
+
+```
+【基本信息】
+股票：XXX（代码/ticker）| 行业：XXX | 市值：XXX | 当前价：XX
+
+【产业链定位】
+所处环节：上游/中游/下游 → [具体环节]
+三高评估：高增长✓/✗ | 高利润✓/✗ | 高壁垒✓/✗ | 高议价✓/✗
+结论：是否处于产业链最优位置
+
+【四层评分卡】
+宏观层   ★★★★☆  [一句话]
+竞争层   ★★★☆☆  [一句话]
+产业链层 ★★★★☆  [三高满足 X/4，一句话]
+财务估值 ★★★☆☆  [盈利质量 + 估值贵不贵，一句话]
+
+【雷区检测】
+⚠️ 风险项（如有）：XXX        ✅ 未发现明显雷区（如无）
+
+【综合评级】
+▌ 买入 / 观望 / 回避
+
+【核心逻辑】（2-3句）
+【主要风险】（2-3条）
+【数据说明】原始来源/具体链接 + 观测期与披露日 + 精度/口径；关键指标附下次如何获取
+
+—— 评级到此结束。要不要买、买多少、止损在哪，请用 trading-discipline。
+```
+
+---
+
+## 通用执行原则（各市场都适用）
+
+- **取数与溯源**：本仓库已入库的行情、扫描和技术候选用下方 TradeGuard。报价/K线/结构化摘要在已配置时优先用 `longbridge` CLI/MCP；财务、政策、产业和资金关键判断直接核对公司 IR、监管/交易所、统计部门原文。网页也用于定量一手表格，不限于定性补充。聚合服务或库缺项补充时注明上游来源、观测期与精度，不把工具名称当作一手证据。
+- **币种与后缀（必区分）**：`.US` = 美元报价；`.HK` = **港币**（如 `00241.HK` 阿里健康）；`.SH`/`.SZ` = 人民币。汇报市值/估值时必须带币种，禁止把 HKD 当 USD，禁止把 CNY/HKD/USD 直接相加。
+- **时效性**：当前研究核对最新可得观测期、披露日与修订；追溯报告按事件当时日期和原图题检索，保留历史比较，不能只靠搜索词带当前年月判断新旧。显式扫描日期、来源和复权必填。不用未来 K 线，不静默混用来源。
+- **置信度标注**：`[数据支撑]`（有数字/权威来源）vs `[推断]`（逻辑推理，提示用户自验）。
+- **反向提示**：每次都主动列"不建议"的方向或风险项，别只输出正面判断。
+- **搜索失败如实说**：某维度数据缺失就明说，不用模糊语言掩盖，也不编造缺失的美股数据或中性强度分。
+- **不越界**：只出评级，不替用户决定仓位/进场点/止损——交棒 `trading-discipline`。
+
+---
+
+## 本地 TradeGuard
+
+在本仓库运行 `uv run tradeguard ...`，或使用已安装的 `tradeguard`。成功命令的 stdout 只有一条 JSON，供应商日志走 stderr。先读 status 再读 data：partial 不是全覆盖。
+
+1. `tradeguard doctor` 检查本地安装和数据库。
+2. `tradeguard market quality --date YYYY-MM-DD --source SOURCE` 检查已存覆盖。它的范围是库内证券，不是全市场已覆盖的证明。
+3. `tradeguard market sync --date YYYY-MM-DD --symbol 600000.SH` 按标的拉取有限的 A 股历史窗口，可选 baostock。不带标的会向数据源请求沪深 A 股全集。不要为了凑一个通过的数据质量状态去拉整池。
+4. `tradeguard scan run --date YYYY-MM-DD --source SOURCE` 生成技术候选，并做数据就绪检查。它套用已配置的可交易性过滤，不做基本面排序。
+5. `tradeguard scan results RUN_ID` 读取已保存批次。
+6. `tradeguard research save --file private/report.json` 保存带一手来源证据的研究报告。
+
+`pipeline daily --market CN` 用 akshare 回补 A 股，失败再退到 baostock，并记录换源。缓存扫描停留在明确的 `--source`（例如 `legacy_mysql`），不因此访问网络。CN/US/HK 的扫描和图表按市场、来源和日期隔离。不要把合成或示例数据当成现价。来源可能延迟；保留观测期、披露日和取数时间。
 
 ## 每日 Top 5
 
 当用户请求基于扫描的每日推荐、候选排序或 Top 5 时，遵循 [本地每日研究流程](references/daily-top5.md)。先冻结扫描证据，再由 Agent 比较、写明风险与失效条件并保存；平台只展示结果，不在网页中运行模型。
+
+---
+
+## 参考文件（按市场只读对应那份，别一次全读）
+
+| 文件 | 什么时候读 |
+|---|---|
+| `references/data-sources.md` | 题材/行业研究、关键财务和资金证据、新闻图表溯源；包含一手来源目录、口径检查与复用模板。 |
+| `references/a-share.md` | 做 **A股** 分析时：政策、资金指标及披露边界，长桥采集与官方原文核验，A股雷区、行业模板、相对估值。 |
+| `references/us-stock.md` | 做 **美股** 分析时：宏观/产业政策，13F/空头/ETF/期权口径，长桥采集与SEC/IR核验，财务风险及行业估值。 |
+| `references/daily-top5.md` | 做本地扫描后的每日研究名单时：冻结证据、比较、写风险和失效条件，再保存。 |
