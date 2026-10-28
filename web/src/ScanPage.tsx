@@ -1,20 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, RefreshCw, ScanLine } from "lucide-react";
-import { openPath, scopedPath, useMarket } from "./MarketContext";
-import {
-  CachedScanDate,
-  fetchScanDates,
-  fetchScanSummaries,
-  startScan,
-} from "./api";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, RefreshCw } from "lucide-react";
+import { useMarket } from "./MarketContext";
+import { fetchScanSummaries } from "./api";
 import { ScanSummary } from "./types";
-import CalendarPicker from "./CalendarPicker";
 import SelectionShell, { SelectionNavProps } from "./SelectionShell";
-import { DAILY_STRATEGIES } from "./strategies";
+import ScanWorkflow from "./ScanWorkflow";
+import { groupScanHistory } from "./scanHistory";
 
 interface Props extends SelectionNavProps {
   onBack: () => void;
-  onSelectDate: (date: string) => void;
+  onSelectDate: (date: string, source?: string, adjustment?: string) => void;
 }
 const STATUS: Record<string, string> = {
   success: "已完成",
@@ -31,117 +26,47 @@ const REGIME: Record<string, string> = {
   unknown: "环境未知",
 };
 const count = (value?: number | null) =>
-  typeof value === "number" ? value.toLocaleString() : "—";
+  typeof value === "number" ? value.toLocaleString("zh-CN") : "—";
 
 export default function ScanPage({ onBack, onSelectDate, ...nav }: Props) {
-  const { market, source, adjustment, info } = useMarket();
-  const [runDate, setRunDate] = useState("");
-  const [dates, setDates] = useState<CachedScanDate[]>([]);
+  const { market, adjustment, info } = useMarket();
   const [summaries, setSummaries] = useState<ScanSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [dateError, setDateError] = useState<string | null>(null);
+  const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [historyDate, setHistoryDate] = useState("");
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setError(null);
-    setDateError(null);
+    setError("");
     setSummaries([]);
-    setDates([]);
-    setRunDate("");
     setHistoryDate("");
-    // History remains usable even when reading cache availability fails.
-    Promise.allSettled([fetchScanSummaries(), fetchScanDates()]).then(
-      ([history, cache]) => {
-        if (cancelled) return;
-        if (history.status === "fulfilled") {
+    fetchScanSummaries(true)
+      .then((rows) => {
+        if (!cancelled)
           setSummaries(
-            [...history.value].sort(
+            [...rows].sort(
               (a, b) =>
                 b.scanDate.localeCompare(a.scanDate) ||
                 (b.executionDate || "").localeCompare(a.executionDate || ""),
             ),
           );
-        } else
-          setError(
-            history.reason instanceof Error
-              ? history.reason.message
-              : "扫描记录读取失败",
-          );
-        if (cache.status === "fulfilled") {
-          setDates(cache.value);
-          setRunDate(cache.value[0]?.date || "");
-        } else
-          setDateError(
-            cache.reason instanceof Error
-              ? cache.reason.message
-              : "可用交易日读取失败",
-          );
-        setLoading(false);
-      },
-    );
+      })
+      .catch((e) => {
+        if (!cancelled) setError((e as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [market, source, adjustment, refresh]);
-
-  useEffect(() => {
-    if (!summaries.some((s) => s.status === "running" || s.status === "queued"))
-      return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      fetchScanSummaries()
-        .then((rows) => {
-          if (!cancelled) setSummaries(rows);
-        })
-        .catch((e) => {
-          if (!cancelled) setError(e.message);
-        });
-    }, 3000);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [summaries]);
-
-  async function launchScan() {
-    setStarting(true);
-    setError(null);
-    try {
-      const result = await startScan(runDate);
-      if (mounted.current) onSelectDate(result.run_id);
-    } catch (e) {
-      if (mounted.current) setError((e as Error).message);
-    } finally {
-      if (mounted.current) setStarting(false);
-    }
-  }
-  const selectedCache = dates.find((d) => d.date === runDate);
-  const currentSource = info?.sources.find(
-    (s) => s.source === source && s.adjustment === adjustment,
-  );
-  const alternatives =
-    info?.sources.filter(
-      (s) =>
-        (s.source !== source || s.adjustment !== adjustment) &&
-        s.scan_count > 0,
-    ) || [];
-  const historyDates = [...new Set(summaries.map((s) => s.scanDate))];
+  }, [market, adjustment, refresh]);
+  const days = groupScanHistory(summaries);
+  const historyDates = days.map((day) => day.date);
   const visible = historyDate
-    ? summaries.filter((s) => s.scanDate === historyDate)
-    : summaries;
-
+    ? days.filter((day) => day.date === historyDate)
+    : days;
   return (
     <SelectionShell
       currentSection="scan"
@@ -159,86 +84,51 @@ export default function ScanPage({ onBack, onSelectDate, ...nav }: Props) {
               <ArrowLeft className="h-4 w-4" />
             </button>
             <div>
-              <h1 className="text-xl font-semibold text-white">每日扫描</h1>
-              <p className="mt-1 text-xs text-slate-400">
-                {info?.label} · {source || "暂无行情来源"} ·{" "}
-                {
-                  (
-                    {
-                      forward: "前复权",
-                      none: "不复权",
-                      backward: "后复权",
-                    } as Record<string, string>
-                  )[adjustment]
-                }{" "}
-                · 缓存截止 {currentSource?.max_date || "未知"}
+              <h1 className="text-xl font-semibold text-slate-900">
+                每日扫描记录
+              </h1>
+              <p className="mt-1 text-xs text-slate-500">
+                {info?.label || market} · {historyDates.length} 个交易日 · 共{" "}
+                {summaries.length} 次执行
               </p>
             </div>
           </div>
           <button
             aria-label="刷新扫描记录"
             onClick={() => setRefresh((n) => n + 1)}
-            disabled={loading || starting}
+            disabled={loading}
             className="tg-button inline-flex items-center gap-2"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
             />
-            刷新
+            刷新记录
           </button>
         </header>
-
-        <section
-          className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 sm:p-5"
-          aria-label="新建扫描"
-        >
-          <div className="mb-4 flex items-center gap-2">
-            <ScanLine className="h-4 w-4 text-emerald-400" />
-            <h2 className="text-sm font-semibold text-white">扫描已保存行情</h2>
-          </div>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <CalendarPicker
-              availableDates={dates.map((d) => d.date)}
-              selectedDate={runDate}
-              onSelectDate={setRunDate}
-              disabled={loading || starting}
-            />
-            <button
-              disabled={loading || starting || !source || !selectedCache}
-              onClick={launchScan}
-              className="tg-primary inline-flex items-center gap-2"
-            >
-              {starting ? "正在创建任务…" : "开始扫描"}
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-          <p className="mt-4 text-xs leading-5 text-slate-400">
-            {loading
-              ? "正在读取可用交易日…"
-              : dateError
-                ? dateError
-                : selectedCache
-                  ? `${runDate} 有 ${count(selectedCache.symbols)} 个标的缓存，扫描前仍会检查历史长度和过滤条件。`
-                  : "当前市场、来源和复权尚无股票缓存，请先导入或同步行情。"}{" "}
-            扫描使用同源缓存，不自动下载行情。
-          </p>
-        </section>
-
+        <ScanWorkflow summary={visible[0]?.primary} />
+        <p className="text-xs leading-6 text-slate-500">
+          按日期展示当前市场已保存的历史，不受行情来源选择限制。每天优先展示可查看、扫描范围较大的批次；同日其他执行可展开，明细和图表仍沿用各自原始批次。
+        </p>
         {error && (
           <div
             role="alert"
-            className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300"
+            className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-600"
           >
             {error}
+            <button
+              onClick={() => setRefresh((n) => n + 1)}
+              className="ml-3 underline"
+            >
+              重试
+            </button>
           </div>
         )}
-
         <section aria-label="历史扫描" className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-slate-200">
-              扫描记录{" "}
-              <span className="ml-2 font-normal text-slate-500">
-                {historyDates.length} 个交易日 · {summaries.length} 次执行
+            <h2 className="text-sm font-semibold text-slate-700">
+              历史扫描{" "}
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                按交易日从新到旧
               </span>
             </h2>
             {historyDates.length > 0 && (
@@ -258,153 +148,171 @@ export default function ScanPage({ onBack, onSelectDate, ...nav }: Props) {
           {loading ? (
             <p
               role="status"
-              className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-400"
+              className="rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500"
             >
               正在读取扫描记录…
             </p>
           ) : summaries.length === 0 && !error ? (
-            <div className="rounded-xl border border-dashed border-slate-700 p-6 sm:p-8">
-              <p className="text-sm font-medium text-slate-200">
-                {source || "当前来源"} 尚无扫描记录
+            <div className="rounded-xl border border-dashed border-slate-200 p-6 sm:p-8">
+              <p className="text-sm font-medium text-slate-700">
+                当前暂无已保存的扫描记录
               </p>
-              <p className="mt-2 text-sm text-slate-400">
-                {dates.length
-                  ? "选择上方有缓存的交易日开始扫描，结果会保存在这里。"
-                  : "导入或同步该来源行情后，即可选择交易日扫描。"}
+              <p className="mt-2 text-sm text-slate-500">
+                每日任务完成后，扫描结果会显示在这里。
               </p>
-              {alternatives.length > 0 && (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-slate-500">
-                    其他来源已有记录：
-                  </span>
-                  {alternatives.map((s) => (
-                    <button
-                      key={s.source + s.adjustment}
-                      className="tg-button text-xs"
-                      onClick={() =>
-                        openPath(
-                          scopedPath("/scan", {
-                            source: s.source,
-                            adjustment: s.adjustment,
-                          }),
-                        )
-                      }
-                    >
-                      查看 {s.source} · {s.latest_scan_date} · {s.scan_count} 次
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           ) : (
-            visible.map((s) => {
-              const inProgress =
-                s.status === "queued" || s.status === "running";
+            visible.map(({ primary: s, others }) => {
+              const inProgress = ["queued", "running"].includes(s.status);
               const missing =
                 (s.filterCounts?.missing_target_bar || 0) +
                 (s.filterCounts?.insufficient_history || 0);
+              const metrics: [string, number | undefined][] = [
+                ["命中股票", s.hitStockCount],
+                ["≥2 共振", s.candidateCount],
+                ["涉及行业", s.hitIndustryCount],
+                ["共振行业", s.resonanceIndustryCount],
+              ];
               return (
-                <button
-                  key={s.id}
-                  onClick={() => onSelectDate(s.id)}
-                  className="group w-full rounded-xl border border-slate-700/70 bg-slate-900/60 p-4 text-left transition hover:border-slate-500 hover:bg-slate-800/70"
+                <article
+                  key={s.scanDate}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-slate-300"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <time className="font-semibold tabular-nums text-white">
-                        {s.scanDate}
-                      </time>
-                      <span
-                        className={`rounded-md px-2 py-0.5 text-xs ${s.status === "success" ? "bg-emerald-500/10 text-emerald-300" : s.status === "partial" ? "bg-amber-500/10 text-amber-300" : s.status === "failed" || s.status === "stale" ? "bg-red-500/10 text-red-300" : "bg-cyan-500/10 text-cyan-300"}`}
-                      >
-                        {STATUS[s.status] || s.status}
-                      </span>
+                  <button
+                    key={s.id}
+                    onClick={() => onSelectDate(s.id, s.source, s.adjustment)}
+                    className="group w-full p-4 text-left transition hover:bg-slate-50 sm:p-5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <time className="font-semibold tabular-nums text-slate-900">
+                          {s.scanDate}
+                        </time>
+                        {s.executionDate && (
+                          <span className="text-xs text-slate-500">
+                            执行于{" "}
+                            {new Date(s.executionDate).toLocaleString("zh-CN", {
+                              timeZone: "Asia/Shanghai",
+                              month: "2-digit",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-xs ${s.marketRegime === "bull" ? "bg-emerald-500/10 text-emerald-700" : s.marketRegime === "bear" ? "bg-red-500/10 text-red-600" : "bg-slate-200/60 text-slate-600"}`}
+                        >
+                          {REGIME[s.marketRegime] || "环境未知"}
+                        </span>
+                        {s.status !== "success" && (
+                          <span className="text-xs text-amber-700">
+                            {STATUS[s.status] || s.status}
+                          </span>
+                        )}
+                        {s.recordOrigin === "legacy_scan_cache" && (
+                          <span className="text-xs text-slate-500">
+                            历史导入
+                          </span>
+                        )}
+                      </div>
                       <span className="text-xs text-slate-500">
-                        {REGIME[s.marketRegime] || "环境未知"}
+                        {s.totalStockCount == null || s.filteredOutCount == null
+                          ? `已扫描 ${count(s.scannedStockCount ?? s.tradableCount)} 只 · 原记录未保存初筛总量`
+                          : `股票池 ${count(s.totalStockCount)} 只，过滤 ${count(s.filteredOutCount)} 只后扫描 ${count(s.scannedStockCount ?? s.tradableCount)} 只`}
                       </span>
                     </div>
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-400 group-hover:text-emerald-300">
-                      查看明细
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    {[
-                      {
-                        label: "参与扫描",
-                        value: s.scannedStockCount ?? s.tradableCount,
-                      },
-                      {
-                        label: "命中策略",
-                        value: s.hitStockCount ?? s.candidateCount,
-                      },
-                      { label: "≥2 策略共振", value: s.candidateCount },
-                    ].map((metric) => (
-                      <div key={metric.label}>
-                        <div
-                          className={`text-lg font-semibold tabular-nums ${metric.label === "命中策略" ? "text-emerald-300" : "text-slate-200"}`}
-                        >
-                          {inProgress ? "…" : count(metric.value)}
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {metrics.map(([label, value]) => (
+                        <div key={label}>
+                          <div
+                            className={`text-xl font-semibold tabular-nums ${label === "命中股票" ? "text-emerald-700" : "text-slate-700"}`}
+                          >
+                            {inProgress ? "…" : count(value)}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {label}
+                          </div>
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          {metric.label}
-                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                      <div className="flex flex-wrap gap-2">
+                        {s.topSectors.slice(0, 3).map((v) => (
+                          <span
+                            key={v.sector}
+                            className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500"
+                          >
+                            {v.sector}
+                          </span>
+                        ))}
                       </div>
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500 group-hover:text-emerald-700">
+                        查看当日明细
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                    {(s.error || missing > 0 || inProgress) && (
+                      <p className="mt-3 text-xs text-amber-700/80">
+                        {s.error ||
+                          (inProgress
+                            ? "任务执行中，刷新记录查看最新状态"
+                            : `${count(missing)} 个标的缺当日行情或历史不足，详情保留具体原因`)}
+                      </p>
+                    )}
+                    {s.dataWarnings?.map((warning) => (
+                      <p
+                        className="mt-2 text-xs leading-5 text-slate-500"
+                        key={warning}
+                      >
+                        {warning}
+                      </p>
                     ))}
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3 text-xs text-slate-500">
-                    <span>
-                      {s.error ||
-                        (inProgress
-                          ? "任务执行中，可查看进度"
-                          : missing
-                            ? `${count(missing)} 个标的缺当日行情或历史不足，查看明细了解原因`
-                            : s.hitStockCount === 0
-                              ? "本次未命中策略，可查看过滤原因"
-                              : s.topSectors
-                                  .slice(0, 3)
-                                  .map((v) => v.sector)
-                                  .join(" · ") || "未记录行业")}
-                    </span>
-                    <span>
-                      {s.executionDate
-                        ? new Date(s.executionDate).toLocaleString("zh-CN", {
-                            timeZone: "Asia/Shanghai",
-                          })
-                        : ""}
-                    </span>
-                  </div>
-                </button>
+                  </button>
+                  {others.length > 0 && (
+                    <details className="border-t border-slate-100 px-5 py-3">
+                      <summary className="cursor-pointer text-xs text-slate-500">
+                        同日其他执行（{others.length} 次）
+                      </summary>
+                      <div className="mt-3 space-y-2">
+                        {others.map((other) => (
+                          <button
+                            className="flex w-full flex-wrap items-center justify-between gap-2 rounded-md bg-slate-50 px-3 py-2 text-left text-xs text-slate-600 hover:bg-blue-50"
+                            key={other.id}
+                            onClick={() =>
+                              onSelectDate(
+                                other.id,
+                                other.source,
+                                other.adjustment,
+                              )
+                            }
+                          >
+                            <span>
+                              {other.executionDate
+                                ? new Date(other.executionDate).toLocaleString(
+                                    "zh-CN",
+                                    { timeZone: "Asia/Shanghai" },
+                                  )
+                                : "时间未记录"}{" "}
+                              · {STATUS[other.status] || other.status} · 扫描{" "}
+                              {count(
+                                other.scannedStockCount ?? other.tradableCount,
+                              )}{" "}
+                              只 · 命中 {count(other.hitStockCount)} 只
+                            </span>
+                            <span className="text-blue-700">
+                              查看这次执行 →
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </article>
               );
             })
           )}
         </section>
-
-        <details className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 text-sm text-slate-400">
-          <summary className="cursor-pointer text-xs text-slate-400">
-            扫描规则与策略说明
-          </summary>
-          <div className="mt-4 grid gap-4 text-xs leading-6 sm:grid-cols-3">
-            <div>
-              <h3 className="font-medium text-slate-200">1. 市场环境</h3>
-              <p>按同源基准的 MA20 和斜率判断；缺基准数据时保留未知。</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-slate-200">2. 股票池过滤</h3>
-              <p>
-                检查停牌、上市历史、流动性；A 股额外检查 ST
-                与板块涨跌幅。每个过滤原因均保存。
-              </p>
-            </div>
-            <div>
-              <h3 className="font-medium text-slate-200">3. 五策略扫描</h3>
-              <p>
-                {DAILY_STRATEGIES.map((s) => s.title).join("、")}
-                。命中数与共振数分别记录。
-              </p>
-            </div>
-          </div>
-        </details>
       </div>
     </SelectionShell>
   );

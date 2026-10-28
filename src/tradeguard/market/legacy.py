@@ -13,6 +13,7 @@ from tradeguard.db import engine, session
 from tradeguard.db.locks import named_lock
 from tradeguard.db.models import DailyBar, Run, Security, now
 from tradeguard.db.readonly import open_readonly
+from tradeguard.market.coverage import prepare_coverage, record_coverage
 from tradeguard.market.schemas import BarInput, currency_for, normalize_symbol
 
 FIELDS = [
@@ -177,18 +178,16 @@ def _import_mysql(
                             )
                             .on_duplicate_key_update(symbol=cached_symbol)
                         )
-                    for offset in range(0, len(valid), 1000):
-                        values = [
-                            dict(zip(FIELDS, row, strict=True))
-                            for row in valid[offset : offset + 1000]
-                        ]
-                        if values:
-                            stmt = insert(DailyBar).values(values)
-                            local.execute(
-                                stmt.on_duplicate_key_update(
-                                    **{k: getattr(stmt.inserted, k) for k in FIELDS[4:]}
-                                )
+                    values = [dict(zip(FIELDS, row, strict=True)) for row in valid]
+                    added = prepare_coverage(local, values)
+                    for offset in range(0, len(values), 1000):
+                        stmt = insert(DailyBar).values(values[offset : offset + 1000])
+                        local.execute(
+                            stmt.on_duplicate_key_update(
+                                **{k: getattr(stmt.inserted, k) for k in FIELDS[4:]}
                             )
+                        )
+                    record_coverage(local, added)
                     local.execute(update(Run).where(Run.id == run_id).values(details=next_progress))
                 progress = next_progress
                 invocation_rows += len(batch)

@@ -73,8 +73,8 @@ export default function AlertsPage(props: SelectionNavProps) {
     <SelectionShell {...props} currentSection="alerts">
       <div className="flex flex-wrap justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold text-white">提醒记录</h1>
-          <p className="mt-2 text-sm text-slate-400">
+          <h1 className="text-3xl font-semibold text-slate-900">提醒记录</h1>
+          <p className="mt-2 text-sm text-slate-500">
             价格条件、新策略信号与持仓待更新事项。
           </p>
         </div>
@@ -86,11 +86,11 @@ export default function AlertsPage(props: SelectionNavProps) {
           {busy ? "评估中…" : "评估当前缓存"}
         </button>
       </div>
-      <div className="tg-panel text-sm leading-6 text-slate-400">
+      <div className="tg-panel text-sm leading-6 text-slate-500">
         只在手动评估或执行本地提醒命令时检查已保存的日线与快照。价格条件仅使用创建当日及之后的缓存收盘；旧历史行情不会触发新条件。不提供盘中连续监控，也不代表券商挂单或成交。
       </div>
       {error && (
-        <p role="alert" className="tg-panel text-red-300">
+        <p role="alert" className="tg-panel text-red-600">
           {error}
         </p>
       )}
@@ -113,7 +113,7 @@ export default function AlertsPage(props: SelectionNavProps) {
                   key={n.id}
                 >
                   <div className="flex flex-wrap justify-between gap-3">
-                    <h3 className="font-semibold text-slate-100">{n.title}</h3>
+                    <h3 className="font-semibold text-slate-900">{n.title}</h3>
                     <span className="text-xs text-slate-500">
                       {n.read ? "已读" : "未读"}
                     </span>
@@ -121,7 +121,7 @@ export default function AlertsPage(props: SelectionNavProps) {
                   <p className="mt-2 text-xs text-slate-500">
                     记录时间 {new Date(n.created_at).toLocaleString("zh-CN")}
                   </p>
-                  <dl className="mt-3 space-y-1 text-xs leading-5 text-slate-400">
+                  <dl className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
                     {Object.entries(n.evidence)
                       .filter(
                         ([k]) => !["account_id", "snapshot_id"].includes(k),
@@ -153,7 +153,7 @@ export default function AlertsPage(props: SelectionNavProps) {
                   <div className="mt-3 flex gap-4">
                     {n.symbol && (
                       <button
-                        className="text-xs text-cyan-300"
+                        className="text-xs text-cyan-700"
                         onClick={() =>
                           openPath(
                             scopedPath(
@@ -168,7 +168,7 @@ export default function AlertsPage(props: SelectionNavProps) {
                     {!n.read && (
                       <button
                         disabled={busy}
-                        className="text-xs text-slate-400"
+                        className="text-xs text-slate-500"
                         onClick={() => act(() => readNotice(n.id))}
                       >
                         标为已读
@@ -185,9 +185,9 @@ export default function AlertsPage(props: SelectionNavProps) {
               <p className="tg-muted">在个股页设置高于或低于某价格的提醒。</p>
             ) : (
               rules.map((r) => (
-                <div className="mt-4 rounded-xl bg-slate-950/60 p-3" key={r.id}>
+                <div className="mt-4 rounded-xl bg-slate-50/60 p-3" key={r.id}>
                   <button
-                    className="text-sm text-slate-200"
+                    className="text-sm text-slate-700"
                     onClick={() =>
                       openPath(
                         scopedPath("/stock/" + encodeURIComponent(r.symbol)),
@@ -196,7 +196,7 @@ export default function AlertsPage(props: SelectionNavProps) {
                   >
                     {r.symbol}
                   </button>
-                  <p className="mt-2 text-sm text-slate-400">
+                  <p className="mt-2 text-sm text-slate-500">
                     收盘价 {r.condition === "above" ? "≥" : "≤"}{" "}
                     {r.target_price} {r.currency}
                   </p>

@@ -61,12 +61,15 @@ uv run tradeguard report daily --date 2026-10-21 --market CN
 ```bash
 uv run tradeguard market import-legacy --max-rows 1000
 uv run tradeguard market import-legacy --resume-run IMPORT_RUN_ID
+uv run tradeguard scan import-legacy --market CN
 uv run tradeguard market stats --market CN --source legacy_mysql
 uv run tradeguard scan run --market CN --date 2026-06-25 --source legacy_mysql
 uv run tradeguard pipeline daily --market CN --date 2026-06-25 --source legacy_mysql
 ```
 
 `TRADEGUARD_SELECTION_SOURCE_URL` 是已有行情库的只读导入源；`TRADEGUARD_DATABASE_URL` 是独立的运行库。每批 upsert 和导入游标同事务提交，按批次断点续传，MySQL 连接级锁防止重复导入。来源/复权参与行情唯一键。
+
+`market import-legacy` 只导入日线。`scan import-legacy` 另外导入旧源已成功完成的扫描及命中股票，跳过未完成和未来批次，重复执行不新增相同记录。命中数、共振数按逐股策略重计；没有保存的初筛总量、过滤规则和可核验基准保持未知。每日扫描页按市场/复权展示全部来源的已有日期，每日优先展示可用且扫描数量较多的一次执行，其他执行可展开；点击明细严格锁定该批次来源、复权和日期，不合并价格或信号。
 
 本机已导入 1,858,615 条有效旧日线，源表 1,859,559 条中 944 条不完整记录被跳过。另有一次独立 baostock 单股真实采集；所有来源分开存储。旧库行情截止 **2026-06-25**，不能作为今天行情使用。
 
@@ -86,7 +89,9 @@ uv run tradeguard market quality --market CN --date 2026-10-16 --source baostock
 uv run tradeguard serve
 ```
 
-浏览器打开 http://127.0.0.1:8188 。
+浏览器打开 http://127.0.0.1:8188 。扫描页上方展示市场环境、初筛规则和策略流程，下方只读查看历史执行记录、四项统计与行业标签，不提供发起扫描入口。日常扫描由 CLI 任务执行。行情来源收在“数据说明”，从扫描进入个股自动沿用该批次数据。个股页展示基础资料、行情与扫描摘要，账户读取不阻塞图表。
+
+控制台默认浅色模式，顶部市场与工作区页签固定显示；股票页签包含名称和代码，支持横向滚动、全部页签列表、关闭与键盘切换。关闭当前股票后打开相邻页签；浏览记录保存在本浏览器。
 
 ## 真实持仓与口述更新
 
@@ -109,11 +114,14 @@ uv run tradeguard portfolio sync --broker futu --account ACCOUNT_ID --base-curre
 
 ```bash
 uv run tradeguard discipline rules-import --file private/rules.json
+uv run tradeguard discipline playbook-import --file private/trading-playbook.json
 uv run tradeguard discipline check --profile PROFILE_ID --file private/intent.json
 uv run tradeguard research save --file private/report.json
 ```
 
 `examples/` 只含合成验收数据，不能自动当作个人纪律。规则显式导入并版本化；检查买入/加仓后的单账户单股占比、计划损失、现金、杠杆、回撤、新鲜度和止损证据。不足返回 needs_input，违反规则返回 blocked。通过只代表已实现检查通过，不是交易建议或下单授权。研究报告保留正文、来源、观察周期、发布时间与检索时间。
+
+持仓页顶部常驻显示最新导入的个人手册摘要，包括仓位、分批买卖、止盈止损和打法差异。`playbook-import` 接收 `portfolio_playbook_v1`：包含标题、来源文档/版本/SHA-256、红线提醒、分组条目和歧义说明；每次追加保存。个人摘要放在忽略的 `private/` 或运行库，不写进 Git。摘要保留原文范围和冲突，不会激活数值纪律检查；检查仍须另行导入并选择明确的 `Rules` 版本。没有摘要时显示待导入，不自动套用示例。
 
 将 `skills/stock-analyst` 和 `skills/trading-discipline` 安装或链接到 Agent 宿主技能目录。正常 CLI stdout 是单条 JSON，供应商日志走 stderr。退出码 0 完成、1 错误、2 部分完成、3 待补信息、4 纪律拦截。
 

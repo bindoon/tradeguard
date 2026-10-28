@@ -47,7 +47,7 @@ export default function WatchButton({
         </form>
       )}
       {message && (
-        <p role="status" className="mt-1 text-xs text-cyan-300">
+        <p role="status" className="mt-1 text-xs text-cyan-700">
           {message}
         </p>
       )}

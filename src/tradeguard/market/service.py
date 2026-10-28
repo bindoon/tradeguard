@@ -7,6 +7,7 @@ from sqlalchemy.dialects.mysql import insert
 
 from tradeguard.db import session
 from tradeguard.db.models import DailyBar, Run, Security, now
+from tradeguard.market.coverage import prepare_coverage, record_coverage
 from tradeguard.market.schemas import BarInput, currency_for
 
 
@@ -85,9 +86,10 @@ def save_bars(bars: list[BarInput], *, record_run: bool = True) -> dict:
                 if metadata
                 else stmt.on_duplicate_key_update(symbol=stmt.inserted.symbol)
             )
-        for start in range(0, len(bars), 500):
-            rows = [b.model_dump(exclude={"name", "industry"}) for b in bars[start : start + 500]]
-            stmt = insert(DailyBar).values(rows)
+        rows = [b.model_dump(exclude={"name", "industry"}) for b in bars]
+        added = prepare_coverage(db, rows)
+        for start in range(0, len(rows), 500):
+            stmt = insert(DailyBar).values(rows[start : start + 500])
             db.execute(
                 stmt.on_duplicate_key_update(
                     **{
@@ -99,6 +101,7 @@ def save_bars(bars: list[BarInput], *, record_run: bool = True) -> dict:
                     },
                 )
             )
+        record_coverage(db, added)
         details = {
             "rows": len(bars),
             "symbols": len(securities),

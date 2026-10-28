@@ -49,7 +49,7 @@ export default function CalendarPicker({
   return (
     <div className="space-y-3" aria-label={label}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-sm text-slate-400">{label}</span>
+        <span className="mr-1 text-sm text-slate-500">{label}</span>
         <Popover
           open={open}
           onOpenChange={(next) => {
@@ -68,12 +68,12 @@ export default function CalendarPicker({
               className="tg-input inline-flex min-w-[174px] items-center justify-between gap-3 disabled:opacity-50"
             >
               <span>{selectedDate || "暂无可用日期"}</span>
-              <CalendarDays className="h-4 w-4 text-slate-400" />
+              <CalendarDays className="h-4 w-4 text-slate-500" />
             </button>
           </PopoverTrigger>
           <PopoverContent
             align="start"
-            className="dark w-auto max-w-[calc(100vw-24px)] rounded-xl border-slate-700 bg-slate-900 p-1 text-slate-100 shadow-2xl"
+            className="w-auto max-w-[calc(100vw-24px)] rounded-xl border-slate-200 bg-white p-1 text-slate-900 shadow-xl"
           >
             <Calendar
               mode="single"
@@ -102,7 +102,7 @@ export default function CalendarPicker({
               classNames={{
                 caption_dropdowns: "flex items-center gap-1 px-8",
                 dropdown:
-                  "rounded-md border border-slate-600 bg-slate-800 px-1 py-1 text-sm text-slate-100",
+                  "rounded-md border border-slate-300 bg-slate-100 px-1 py-1 text-sm text-slate-900",
                 vhidden: "sr-only",
                 dropdown_icon: "hidden",
                 caption_label: "hidden",
@@ -118,7 +118,7 @@ export default function CalendarPicker({
                 }
               }}
               footer={
-                <p className="pt-3 text-center text-xs text-slate-400">
+                <p className="pt-3 text-center text-xs text-slate-500">
                   仅可选择当前来源有股票缓存的交易日
                 </p>
               }
@@ -150,7 +150,7 @@ export default function CalendarPicker({
           type="button"
           disabled={unavailable || selectedDate === dates[0]}
           onClick={() => onSelectDate(dates[0])}
-          className="text-xs text-emerald-300 disabled:text-slate-600"
+          className="text-xs text-emerald-700 disabled:text-slate-600"
         >
           最新缓存日
         </button>
@@ -168,7 +168,7 @@ export default function CalendarPicker({
               disabled={disabled}
               aria-pressed={day === selectedDate}
               onClick={() => onSelectDate(day)}
-              className={`rounded-md border px-2.5 py-1 text-xs transition ${day === selectedDate ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200"}`}
+              className={`rounded-md border px-2.5 py-1 text-xs transition ${day === selectedDate ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700" : "border-slate-200 text-slate-500 hover:border-slate-500 hover:text-slate-700"}`}
             >
               {day}
             </button>

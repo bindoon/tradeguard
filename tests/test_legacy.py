@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from tradeguard.db.models import DailyBar, Run
 from tradeguard.market import legacy
+from tradeguard.market.coverage import source_coverage
 
 
 class Result:
@@ -88,3 +89,9 @@ def test_readonly_import_copy_resume_and_invalid_bar_accounting(database, monkey
         assert db.get(Run, first["run_id"]).details["last_id"] == 2
     third = legacy.import_mysql(resume_run=first["run_id"])
     assert third["rows_imported"] == 1
+    with Session(database) as db:
+        coverage = source_coverage(db, "CN", date(2026, 10, 26))
+        assert len(coverage) == 1
+        assert coverage[0]["rows"] == 1
+        assert coverage[0]["symbols"] == 1
+        assert coverage[0]["source"] == "legacy_mysql"

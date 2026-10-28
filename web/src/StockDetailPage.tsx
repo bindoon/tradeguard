@@ -94,25 +94,16 @@ export default function StockDetailPage({
     setBars([]);
     setProfile(null);
     setSignals([]);
-    setAccounts([]);
     Promise.all([
       fetchKline(stockCode, prefs.days, endDate),
       fetchStockProfile(stockCode, endDate),
       fetchStockSignals(stockCode, endDate),
-      realPortfolio(),
     ])
-      .then(([nextBars, nextProfile, nextSignals, portfolio]) => {
+      .then(([nextBars, nextProfile, nextSignals]) => {
         if (cancelled) return;
         setBars(nextBars);
         setProfile(nextProfile);
         setSignals(nextSignals);
-        setAccounts(
-          portfolio.accounts.filter((account) =>
-            account.snapshot?.positions.some(
-              (position) => position.symbol === stockCode,
-            ),
-          ),
-        );
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -124,6 +115,29 @@ export default function StockDetailPage({
       cancelled = true;
     };
   }, [stockCode, market, source, adjustment, endDate, prefs.days]);
+
+  const [accountError, setAccountError] = useState("");
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setAccounts([]);
+    setAccountError("");
+    setAccountsLoading(true);
+    realPortfolio()
+      .then((portfolio) => {
+        if (!cancelled) setAccounts(portfolio.accounts);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setAccountError("账户记录读取失败，请刷新重试；不据此判断为空仓。");
+      })
+      .finally(() => {
+        if (!cancelled) setAccountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stockCode]);
 
   const matchingAccounts = accounts.filter((account) =>
     account.snapshot?.positions.some(
@@ -151,23 +165,23 @@ export default function StockDetailPage({
           <button
             aria-label="返回"
             onClick={onBack}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-300"
+            className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-600"
           >
             ←
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-white">
+            <h1 className="text-2xl font-bold text-slate-900">
               {profile?.name || stockName || stockCode}
             </h1>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-slate-500">
               {stockCode} · {profile?.industry || "行业未记录"} · {currency}
             </p>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-semibold text-slate-100">
+          <div className="text-2xl font-semibold text-slate-900">
             {fmt(latest?.close)}{" "}
-            <span className="text-sm text-slate-400">{currency}</span>
+            <span className="text-sm text-slate-500">{currency}</span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
             缓存收盘 · {latest?.date || "暂无行情"}
@@ -177,7 +191,7 @@ export default function StockDetailPage({
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-red-500/30 p-4 text-red-300"
+          className="rounded-xl border border-red-500/30 p-4 text-red-600"
         >
           {error}
         </p>
@@ -229,24 +243,72 @@ export default function StockDetailPage({
         </form>
       </div>
       {alertMessage && (
-        <p role="status" className="text-sm text-cyan-300">
+        <p role="status" className="text-sm text-cyan-700">
           {alertMessage}
         </p>
       )}
       {endDate && (
-        <p className="text-xs text-amber-200">
+        <p className="text-xs text-amber-700">
           历史图表截止 {endDate}
           ；下方账户为最近保存的真实观察，各自时间单独标注。
         </p>
       )}
-      <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 p-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="tg-panel" aria-label="股票基础与行业信息">
+          <h2 className="tg-title">股票基础与行业信息</h2>
+          <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
+            {[
+              ["股票名称", profile?.name || stockName || stockCode],
+              ["股票代码", stockCode],
+              ["所属市场", { CN: "A 股", US: "美股", HK: "港股" }[market]],
+              ["所属行业", profile?.industry || "未记录"],
+              ["最近行情日期", profile?.lastDataDate || "暂无行情"],
+              [
+                "历史日线",
+                profile?.dataDays == null ? "—" : `${profile.dataDays} 根`,
+              ],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs text-slate-500">{label}</dt>
+                <dd className="mt-1 text-slate-700">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+        <section className="tg-panel" aria-label="最新行情与扫描摘要">
+          <h2 className="tg-title">
+            {endDate ? "所选日期行情与扫描摘要" : "最新行情与扫描摘要"}
+          </h2>
+          <dl className="mt-4 grid grid-cols-3 gap-4 text-sm">
+            {[
+              ["收盘", fmt(latest?.close)],
+              ["开盘", fmt(latest?.open)],
+              ["最高", fmt(latest?.high)],
+              ["最低", fmt(latest?.low)],
+              ["成交量", fmt(latest?.volume)],
+              ["币种", currency],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs text-slate-500">{label}</dt>
+                <dd className="mt-1 text-slate-700">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-4 text-xs leading-6 text-slate-500">
+            {profile?.latestScan?.scanDate
+              ? `${profile.latestScan.scanDate} · 共振 ${profile.latestScan.resonanceCount ?? "未知"} · ${profile.latestScan.strategiesHit.map((name) => STRATEGY_MAP[name]?.title || name).join("、")}`
+              : "所选日期范围内暂无已保存的策略命中"}
+          </p>
+        </section>
+      </div>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-4 flex justify-between">
-          <h2 className="font-semibold text-white">行情、均线与策略信号</h2>
+          <h2 className="font-semibold text-slate-900">行情、均线与策略信号</h2>
           <span className="text-xs text-slate-500">
-            {bars.length} 根日线 · {marked.length} 个信号 · {source}
+            {bars.length} 根日线 · {marked.length} 个信号
           </span>
         </div>
-        <div className="mb-4 flex flex-wrap gap-4 text-xs text-slate-400">
+        <div className="mb-4 flex flex-wrap gap-4 text-xs text-slate-500">
           <label>
             图表范围{" "}
             <select
@@ -282,16 +344,16 @@ export default function StockDetailPage({
               {label}
             </label>
           ))}
-          <span className="self-center">偏好在本浏览器保留 · {adjustment}</span>
+          <span className="self-center">偏好在本浏览器保留</span>
         </div>
         {loading ? (
-          <p className="p-10 text-center text-slate-400">正在加载真实行情…</p>
+          <p className="p-10 text-center text-slate-500">正在加载真实行情…</p>
         ) : bars.length === 0 ? (
           <p className="p-10 text-center text-slate-500">
-            该市场 / 来源尚无该标的行情；不使用其他市场或模拟价格补齐。
+            所选日期范围内暂无该股票的已保存行情。
           </p>
         ) : (
-          <Suspense fallback={<p className="text-slate-400">正在加载图表…</p>}>
+          <Suspense fallback={<p className="text-slate-500">正在加载图表…</p>}>
             <Plot
               data={[
                 {
@@ -314,7 +376,7 @@ export default function StockDetailPage({
                     name: `MA${period}`,
                     line: {
                       width: 1,
-                      color: ["#eab308", "#a78bfa", "#38bdf8", "#f97316"][
+                      color: ["#b45309", "#7c3aed", "#0284c7", "#f97316"][
                         index
                       ],
                     },
@@ -330,7 +392,7 @@ export default function StockDetailPage({
                         name: key,
                         line: {
                           width: 1,
-                          color: "#38bdf8",
+                          color: "#0284c7",
                           dash: "dot" as const,
                         },
                       }),
@@ -349,23 +411,24 @@ export default function StockDetailPage({
                       .join("、"),
                   ),
                   hovertemplate: "%{x}<br>%{text}<extra></extra>",
-                  marker: { color: "#fbbf24", size: 11, symbol: "triangle-up" },
+                  marker: { color: "#d97706", size: 11, symbol: "triangle-up" },
                 },
               ]}
               layout={{
                 height: 520,
                 autosize: true,
+                modebar: { bgcolor: "rgba(255,255,255,0.95)", color: "#64748b", activecolor: "#2563eb", orientation: "h" },
                 paper_bgcolor: "transparent",
                 plot_bgcolor: "transparent",
-                font: { color: "#94a3b8" },
+                font: { color: "#64748b" },
                 margin: { l: 55, r: 20, t: 20, b: 40 },
                 xaxis: {
                   rangeslider: { visible: false },
                   type: "category",
-                  gridcolor: "#1e293b",
+                  gridcolor: "#e2e8f0",
                   nticks: 10,
                 },
-                yaxis: { gridcolor: "#1e293b" },
+                yaxis: { gridcolor: "#e2e8f0" },
                 legend: { orientation: "h", y: 1.06 },
               }}
               config={{ responsive: true, displaylogo: false }}
@@ -379,12 +442,11 @@ export default function StockDetailPage({
         key={stockCode + market + source + adjustment}
         symbol={stockCode}
       />
-      <section className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="font-semibold text-white">信号记录</h2>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold text-slate-900">信号记录</h2>
         {marked.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            当前来源没有与这批 K
-            线重叠的策略命中。信号只来自已保存的扫描，不会用别的行情源补点。
+            所选图表范围内暂无已保存的策略命中。
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
@@ -395,9 +457,9 @@ export default function StockDetailPage({
               .map((item) => (
                 <li
                   key={item.date}
-                  className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200"
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700"
                 >
-                  <span className="text-amber-300">{item.date}</span>
+                  <span className="text-amber-700">{item.date}</span>
                   <span className="mx-2 text-slate-500">
                     共振 {item.resonanceCount}
                   </span>
@@ -405,7 +467,7 @@ export default function StockDetailPage({
                     .map((name) => STRATEGY_MAP[name]?.title ?? name)
                     .join("、")}
                   {item.reasons.length > 0 && (
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-500">
                       {item.reasons.join("；")}
                     </p>
                   )}
@@ -414,14 +476,20 @@ export default function StockDetailPage({
           </ul>
         )}
       </section>
-      <section className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="mb-4 flex justify-between">
-          <h2 className="font-semibold text-white">该标的的真实持仓与条件单</h2>
-          <button onClick={onPortfolio} className="text-sm text-cyan-300">
+          <h2 className="font-semibold text-slate-900">该标的的真实持仓与条件单</h2>
+          <button onClick={onPortfolio} className="text-sm text-cyan-700">
             查看全部账户 →
           </button>
         </div>
-        {matchingAccounts.length === 0 ? (
+        {accountsLoading ? (
+          <p className="text-sm text-slate-500">正在读取该标的的账户记录…</p>
+        ) : accountError ? (
+          <p role="alert" className="text-sm text-amber-700">
+            {accountError}
+          </p>
+        ) : matchingAccounts.length === 0 ? (
           <p className="text-sm text-slate-500">
             已保存的真实账户中未记录该标的。这里不会创建模拟仓位。
           </p>
@@ -436,9 +504,9 @@ export default function StockDetailPage({
             return (
               <div
                 key={account.id}
-                className="mb-3 rounded-xl border border-slate-700 p-4"
+                className="mb-3 rounded-xl border border-slate-200 p-4"
               >
-                <div className="flex flex-wrap justify-between gap-2 text-sm text-slate-200">
+                <div className="flex flex-wrap justify-between gap-2 text-sm text-slate-700">
                   <b>{account.label}</b>
                   <span>
                     {position.quantity} 股 · 成本{" "}
@@ -456,7 +524,7 @@ export default function StockDetailPage({
                     orders.map((order, index) => (
                       <span
                         key={index}
-                        className="rounded border border-slate-600 bg-slate-950 px-3 py-2 text-xs text-slate-300"
+                        className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600"
                       >
                         {order.order_kind === "take_profit"
                           ? "止盈"
@@ -478,7 +546,7 @@ export default function StockDetailPage({
                       </span>
                     ))
                   ) : (
-                    <span className="text-xs text-amber-200">
+                    <span className="text-xs text-amber-700">
                       没有已保存的条件单，不能据此断言没有挂单。
                     </span>
                   )}

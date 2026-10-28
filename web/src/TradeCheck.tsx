@@ -85,7 +85,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
         输入你打算执行的交易。使用明确选择的规则版本和最新真实快照计算，不自动下单；策略命中只是研究依据。
       </p>
       {error && (
-        <p role="alert" className="mt-3 text-sm text-red-300">
+        <p role="alert" className="mt-3 text-sm text-red-600">
           {error}
         </p>
       )}
@@ -136,7 +136,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
           }}
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-slate-500">
               规则版本
               <select
                 name="profile_id"
@@ -153,7 +153,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-slate-500">
               真实账户
               <select
                 required
@@ -169,14 +169,14 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-slate-500">
               动作
               <select name="action" className="tg-input mt-1 w-full">
                 <option value="buy">新买入</option>
                 <option value="add">加仓</option>
               </select>
             </label>
-            <label className="text-xs text-slate-400">
+            <label className="text-xs text-slate-500">
               研究类型
               <select name="style" className="tg-input mt-1 w-full">
                 <option value="trend">趋势交易</option>
@@ -189,7 +189,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
               ["stop_price", "计划止损价"],
               ["fees", "预计费用"],
             ].map(([name, label]) => (
-              <label key={name} className="text-xs text-slate-400">
+              <label key={name} className="text-xs text-slate-500">
                 {label}
                 <input
                   name={name}
@@ -202,9 +202,9 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
             ))}
           </div>
           {profile && (
-            <details className="mt-3 text-xs text-slate-400">
+            <details className="mt-3 text-xs text-slate-500">
               <summary className="cursor-pointer">查看选中的规则版本</summary>
-              <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-3">
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-50 p-3">
                 {JSON.stringify(
                   profiles.find((p) => p.id === profile)?.rules,
                   null,
@@ -213,7 +213,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
               </pre>
             </details>
           )}
-          <label className="mt-3 block text-xs text-slate-400">
+          <label className="mt-3 block text-xs text-slate-500">
             交易依据
             <textarea
               name="thesis"
@@ -224,7 +224,7 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
               placeholder="为什么现在买入，什么事实会使研究失效？"
             />
           </label>
-          <label className="mt-3 flex gap-2 text-xs leading-5 text-slate-400">
+          <label className="mt-3 flex gap-2 text-xs leading-5 text-slate-500">
             <input type="checkbox" name="confirmed" />
             我已人工确认止损计划（仍须规则允许；不代表已向券商挂单）
           </label>
@@ -236,19 +236,19 @@ export default function TradeCheck({ symbol }: { symbol: string }) {
       {result && (
         <div
           role="status"
-          className="mt-4 rounded-xl border border-slate-600 bg-slate-950 p-4"
+          className="mt-4 rounded-xl border border-slate-300 bg-slate-50 p-4"
         >
           <h3
-            className={`font-semibold ${result.decision === "blocked" ? "text-red-300" : result.decision === "needs_input" ? "text-amber-300" : "text-emerald-300"}`}
+            className={`font-semibold ${result.decision === "blocked" ? "text-red-600" : result.decision === "needs_input" ? "text-amber-700" : "text-emerald-700"}`}
           >
             {decisionLabel[result.decision] || result.decision}
           </h3>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+          <ul className="mt-2 space-y-1 text-sm text-slate-600">
             {[...result.blocked, ...result.missing].map((r) => (
               <li key={r}>· {explainReason(r)}</li>
             ))}
           </ul>
-          <dl className="mt-3 flex flex-wrap gap-4 text-xs text-slate-400">
+          <dl className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
             {Object.entries(result.metrics).map(([k, v]) => (
               <div key={k}>
                 {(

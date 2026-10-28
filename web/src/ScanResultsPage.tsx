@@ -1,6 +1,6 @@
 import WatchButton from "./WatchButton";
 import ScanProgress from "./ScanProgress";
-import { useMarket } from "./MarketContext";
+import { useMarket, type Market } from "./MarketContext";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchKline,
@@ -78,19 +78,19 @@ const STRATEGY_LABELS: Record<string, string> = {
 const REGIME_LABEL: Record<string, { text: string; color: string }> = {
   bull: {
     text: "牛市",
-    color: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
+    color: "text-emerald-700 bg-emerald-400/10 border-emerald-400/30",
   },
   neutral: {
     text: "震荡",
-    color: "text-yellow-400  bg-yellow-400/10  border-yellow-400/30",
+    color: "text-yellow-700  bg-yellow-400/10  border-yellow-400/30",
   },
   unknown: {
     text: "未判断",
-    color: "text-slate-400 bg-slate-700 border-slate-600",
+    color: "text-slate-500 bg-slate-200 border-slate-300",
   },
   bear: {
     text: "熊市",
-    color: "text-red-400     bg-red-400/10     border-red-400/30",
+    color: "text-red-600     bg-red-400/10     border-red-400/30",
   },
 };
 
@@ -128,20 +128,25 @@ function computeChartDays(scanDate: string) {
   return Math.min(Math.max(diff + 120, 160), 500);
 }
 
-function LazyLatestChart({
+function LazyScanChart({
   stockCode,
   scanDate,
   source,
+  market,
+  adjustment,
 }: {
   stockCode: string;
   scanDate: string;
-  source?: string;
+  source: string;
+  market: Market;
+  adjustment: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [shouldLoad, setShouldLoad] = useState(false);
   const [chartData, setChartData] = useState<KlineData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryTick, setRetryTick] = useState(0);
 
   const chartDays = useMemo(() => computeChartDays(scanDate), [scanDate]);
 
@@ -175,15 +180,19 @@ function LazyLatestChart({
   }, [shouldLoad]);
 
   useEffect(() => {
-    if (!shouldLoad || chartData || loading) return;
+    if (!shouldLoad) return;
 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setChartData(null);
 
     const cancelQueuedRequest = enqueueChartRequest(async () => {
       try {
-        const data = await fetchKline(stockCode, chartDays, scanDate, source);
+        const data = await fetchKline(stockCode, chartDays, scanDate, source, {
+          market,
+          adjustment,
+        });
         if (!cancelled) {
           setChartData(data);
         }
@@ -202,7 +211,16 @@ function LazyLatestChart({
       cancelled = true;
       cancelQueuedRequest();
     };
-  }, [shouldLoad, chartData, stockCode, chartDays, scanDate, source]);
+  }, [
+    shouldLoad,
+    stockCode,
+    chartDays,
+    scanDate,
+    source,
+    market,
+    adjustment,
+    retryTick,
+  ]);
 
   const scanDayExists =
     chartData?.some((item) => item.date === scanDate) ?? false;
@@ -210,44 +228,52 @@ function LazyLatestChart({
   return (
     <div
       ref={containerRef}
-      className="mt-4 rounded-xl border border-slate-700 bg-slate-900/50 p-3 sm:p-4"
+      onClick={(event) => event.stopPropagation()}
+      aria-label={`${stockCode} 扫描时点图表`}
+      className="mt-4 rounded-xl border border-slate-200 bg-white/50 p-3 sm:p-4"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.18em] text-slate-500">
             扫描时点行情
           </div>
-          <div className="mt-1 text-sm text-slate-300">
+          <div className="mt-1 text-sm text-slate-600">
             与本批次同源，行情截止 {scanDate}
           </div>
         </div>
-        <div className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+        <div className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-700">
           历史视图
         </div>
       </div>
 
       {!shouldLoad || loading ? (
-        <div className="flex h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950/40 text-sm text-slate-500">
+        <div className="flex h-[430px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 text-sm text-slate-500">
           {!shouldLoad ? "等待进入视区，准备加载图表..." : "图表加载中..."}
         </div>
       ) : error ? (
-        <div className="flex h-[360px] items-center justify-center rounded-lg border border-red-700/50 bg-red-900/20 px-4 text-sm text-red-300">
+        <div className="flex h-[430px] flex-col gap-3 items-center justify-center rounded-lg border border-red-700/50 bg-red-50/20 px-4 text-sm text-red-600">
           {error}
+          <button
+            className="rounded border border-red-700 px-3 py-1 hover:bg-red-50/30"
+            onClick={() => setRetryTick((value) => value + 1)}
+          >
+            重试加载图表
+          </button>
         </div>
       ) : !chartData || chartData.length === 0 ? (
-        <div className="flex h-[360px] items-center justify-center rounded-lg border border-slate-700 bg-slate-950/40 text-sm text-slate-500">
+        <div className="flex h-[430px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50/40 text-sm text-slate-500">
           暂无图表数据
         </div>
       ) : (
         <>
           {!scanDayExists && (
-            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              当前最新图表窗口内未覆盖扫描日 {scanDate}，已尽量扩展最近区间。
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+              同源缓存缺少扫描日 {scanDate} 的行情，图表仅展示此前已有记录。
             </div>
           )}
           <Suspense
             fallback={
-              <div className="flex h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950/40 text-sm text-slate-500">
+              <div className="flex h-[430px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 text-sm text-slate-500">
                 图表组件加载中...
               </div>
             }
@@ -273,7 +299,7 @@ function LazyLatestChart({
                   y: chartData.map((item) => item.ma5 ?? null),
                   mode: "lines",
                   name: "MA5",
-                  line: { color: "#38bdf8", width: 1.5 },
+                  line: { color: "#0284c7", width: 1.5 },
                   xaxis: "x",
                   yaxis: "y",
                 },
@@ -283,7 +309,7 @@ function LazyLatestChart({
                   y: chartData.map((item) => item.ma10 ?? null),
                   mode: "lines",
                   name: "MA10",
-                  line: { color: "#22c55e", width: 1.5 },
+                  line: { color: "#15803d", width: 1.5 },
                   xaxis: "x",
                   yaxis: "y",
                 },
@@ -293,7 +319,7 @@ function LazyLatestChart({
                   y: chartData.map((item) => item.ma20 ?? null),
                   mode: "lines",
                   name: "MA20",
-                  line: { color: "#f59e0b", width: 1.5 },
+                  line: { color: "#d97706", width: 1.5 },
                   xaxis: "x",
                   yaxis: "y",
                 },
@@ -303,7 +329,7 @@ function LazyLatestChart({
                   y: chartData.map((item) => item.ma60 ?? null),
                   mode: "lines",
                   name: "MA60",
-                  line: { color: "#a78bfa", width: 1.5 },
+                  line: { color: "#7c3aed", width: 1.5 },
                   xaxis: "x",
                   yaxis: "y",
                 },
@@ -319,27 +345,35 @@ function LazyLatestChart({
               ]}
               layout={{
                 autosize: true,
+                modebar: {
+                  bgcolor: "rgba(255,255,255,0.95)",
+                  color: "#64748b",
+                  activecolor: "#2563eb",
+                  orientation: "h",
+                },
                 height: 430,
                 margin: { l: 44, r: 20, t: 24, b: 36 },
                 paper_bgcolor: "rgba(15, 23, 42, 0)",
-                plot_bgcolor: "rgba(15, 23, 42, 0.55)",
-                font: { size: 11, color: "#cbd5e1" },
+                plot_bgcolor: "#ffffff",
+                font: { size: 11, color: "#475569" },
                 legend: {
                   orientation: "h",
                   y: 1.08,
                   x: 0,
-                  bgcolor: "rgba(15, 23, 42, 0.35)",
+                  bgcolor: "#ffffff",
                   bordercolor: "rgba(71, 85, 105, 0.45)",
                   borderwidth: 1,
                 },
                 hovermode: "x unified",
                 hoverlabel: {
-                  bgcolor: "#1e293b",
+                  bgcolor: "#e2e8f0",
                   bordercolor: "#475569",
-                  font: { color: "#f1f5f9", size: 11 },
+                  font: { color: "#0f172a", size: 11 },
                 },
                 xaxis: {
                   type: "category",
+                  tickmode: "auto",
+                  nticks: 10,
                   rangeslider: { visible: false },
                   showgrid: true,
                   gridcolor: "rgba(148, 163, 184, 0.16)",
@@ -382,7 +416,7 @@ function LazyLatestChart({
                         text: `扫描日 ${scanDate}`,
                         showarrow: false,
                         font: { size: 10, color: "#ef4444" },
-                        bgcolor: "rgba(15, 23, 42, 0.92)",
+                        bgcolor: "#ffffff",
                         bordercolor: "#ef4444",
                         borderwidth: 1,
                         borderpad: 4,
@@ -424,7 +458,7 @@ export default function ScanResultsPage({
     (ScanSummary & { found: boolean }) | null
   >(null);
   const [minResonance, setMinResonance] = useState(1);
-  const [showCharts, setShowCharts] = useState(false);
+  const [showCharts, setShowCharts] = useState(true);
   const [showConditions, setShowConditions] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -545,11 +579,8 @@ export default function ScanResultsPage({
   }, [results, industryFilter, strategyFilter, sortKey]);
 
   const displayDate = summary?.scanDate || scanDate;
-  const totalStockCount =
-    summary?.totalStockCount ?? summary?.tradableCount ?? 0;
-  const filteredOutCount =
-    summary?.filteredOutCount ??
-    Math.max(totalStockCount - (summary?.tradableCount ?? 0), 0);
+  const totalStockCount = summary?.totalStockCount;
+  const filteredOutCount = summary?.filteredOutCount;
   const scannedStockCount =
     summary?.scannedStockCount ?? summary?.tradableCount ?? 0;
   const hitStockCount = summary?.hitStockCount ?? summary?.candidateCount ?? 0;
@@ -557,7 +588,9 @@ export default function ScanResultsPage({
   const resonanceIndustryCount =
     summary?.resonanceIndustryCount ?? summary?.sectorCount ?? 0;
   const keptRatio =
-    totalStockCount > 0 ? (scannedStockCount / totalStockCount) * 100 : null;
+    typeof totalStockCount === "number" && totalStockCount > 0
+      ? (scannedStockCount / totalStockCount) * 100
+      : null;
   const strategyNames =
     summary?.scanStrategies && summary.scanStrategies.length > 0
       ? summary.scanStrategies
@@ -565,44 +598,44 @@ export default function ScanResultsPage({
   const filterConfig = summary?.filterConfig ?? {};
   const summaryMetrics = [
     {
-      label: "全市场股票",
+      label: "扫描股票池",
       value: formatCount(totalStockCount),
-      tone: "text-slate-100",
+      tone: "text-slate-900",
     },
     {
       label: "过滤后继续扫描",
       value: formatCount(scannedStockCount),
-      tone: "text-cyan-300",
+      tone: "text-cyan-700",
     },
     {
       label: "被过滤股票",
       value: formatCount(filteredOutCount),
-      tone: "text-slate-300",
+      tone: "text-slate-600",
     },
     {
       label: "命中任一策略",
       value: formatCount(hitStockCount),
-      tone: "text-emerald-400",
+      tone: "text-emerald-700",
     },
     {
       label: "≥2 策略共振",
       value: formatCount(summary?.candidateCount),
-      tone: "text-emerald-300",
+      tone: "text-emerald-700",
     },
     {
       label: "涉及行业",
       value: formatCount(hitIndustryCount),
-      tone: "text-amber-300",
+      tone: "text-amber-700",
     },
     {
       label: "共振行业",
       value: formatCount(resonanceIndustryCount),
-      tone: "text-blue-400",
+      tone: "text-blue-700",
     },
     {
       label: "强势行业",
       value: formatCount(summary?.sectorCount),
-      tone: "text-violet-300",
+      tone: "text-violet-700",
     },
   ];
 
@@ -620,13 +653,19 @@ export default function ScanResultsPage({
           runId={scanDate}
           onTerminal={() => setRefreshTick((t) => t + 1)}
         />
+        {summary?.recordOrigin === "legacy_scan_cache" && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+            <b>历史扫描导入</b> · 保留原执行时间与逐股策略记录。
+            {summary.dataWarnings?.join(" ")}
+          </div>
+        )}
         {!!summary?.error && (
-          <div className="rounded-lg border border-red-600 bg-red-950/30 p-3 text-red-300">
+          <div className="rounded-lg border border-red-600 bg-red-50/30 p-3 text-red-600">
             {summary.error}
           </div>
         )}
         {!!summary?.warnings && Object.keys(summary.warnings).length > 0 && (
-          <div className="rounded-lg border border-amber-600/30 bg-amber-950/20 p-3 text-sm text-amber-200">
+          <div className="rounded-lg border border-amber-600/30 bg-amber-50/20 p-3 text-sm text-amber-700">
             数据提示：
             {Object.entries(summary.warnings)
               .map(
@@ -641,7 +680,7 @@ export default function ScanResultsPage({
         <div className="flex items-start gap-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:border-slate-600 transition-all"
+            className="p-2 rounded-lg bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-all"
           >
             <svg
               className="w-5 h-5"
@@ -658,10 +697,10 @@ export default function ScanResultsPage({
             </svg>
           </button>
           <div className="min-w-0">
-            <h1 className="text-xl font-bold text-white sm:text-2xl">
+            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
               {displayDate} 扫描结果
             </h1>
-            <p className="text-slate-400 text-sm">
+            <p className="text-slate-500 text-sm">
               当日命中 {formatCount(hitStockCount)} 只，当前过滤条件下显示{" "}
               {formatCount(results.length)} 只
             </p>
@@ -669,26 +708,26 @@ export default function ScanResultsPage({
         </div>
 
         {error && (
-          <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4 text-red-300 text-sm">
+          <div className="bg-red-50/30 border border-red-700/50 rounded-lg p-4 text-red-600 text-sm">
             {error}
           </div>
         )}
 
         {/* Scan Conditions Panel */}
         {summary?.found && (
-          <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+          <div className="bg-slate-100 border border-slate-200 rounded-lg overflow-hidden">
             <button
               onClick={() => setShowConditions((v) => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-750 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition-colors"
             >
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 pr-3">
-                <span className="text-slate-300 text-sm font-medium">
+                <span className="text-slate-600 text-sm font-medium">
                   扫描条件
                 </span>
                 {(() => {
                   const regime = REGIME_LABEL[summary.marketRegime] ?? {
                     text: summary.marketRegime,
-                    color: "text-slate-400 bg-slate-700 border-slate-600",
+                    color: "text-slate-500 bg-slate-200 border-slate-300",
                   };
                   return (
                     <span
@@ -703,7 +742,7 @@ export default function ScanResultsPage({
                   );
                 })()}
                 <span className="text-slate-500 text-xs">
-                  全市场 {formatCount(totalStockCount)} 只 → 过滤后{" "}
+                  股票池 {formatCount(totalStockCount)} 只 → 过滤后{" "}
                   {formatCount(scannedStockCount)} 只 → 命中{" "}
                   {formatCount(hitStockCount)} 只 → ≥2 共振{" "}
                   {formatCount(summary.candidateCount)} 只
@@ -724,12 +763,12 @@ export default function ScanResultsPage({
               </svg>
             </button>
             {showConditions && (
-              <div className="border-t border-slate-700 px-4 py-4 space-y-4">
+              <div className="border-t border-slate-200 px-4 py-4 space-y-4">
                 <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
                   {summaryMetrics.map((metric) => (
                     <div
                       key={metric.label}
-                      className="rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-3"
+                      className="rounded-xl border border-slate-200 bg-white/60 px-3 py-3"
                     >
                       <div className={`text-lg font-semibold ${metric.tone}`}>
                         {metric.value}
@@ -742,56 +781,56 @@ export default function ScanResultsPage({
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-                  <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                  <div className="rounded-xl border border-slate-200 bg-white/50 p-4">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                       筛选条件
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                    <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         过滤 ST：{filterConfig.filterSt === false ? "否" : "是"}
                       </div>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         过滤新股：
                         {filterConfig.filterNewStock === false
                           ? "否"
                           : `上市满 ${formatCount(filterConfig.minListedDays ?? 365)} 天`}
                       </div>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         流动性门槛：
                         {filterConfig.filterLiquidity === false
                           ? "未启用"
                           : `${formatMoneyInYi(filterConfig.minAvgVolume5d ?? 100000000)} / 近 5 日日均成交额`}
                       </div>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         过滤停牌：
                         {filterConfig.filterSuspended === false ? "否" : "是"}
                       </div>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         过滤涨跌停：
                         {filterConfig.filterLimit === false
                           ? "否"
                           : `是（阈值 ${(Number(filterConfig.limitPct ?? 0.095) * 100).toFixed(1)}%）`}
                       </div>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                         市值过滤：
                         {filterConfig.filterMarketCap
                           ? `${formatMoneyInYi(filterConfig.minMarketCap ?? 5000000000)} 起`
                           : "未启用"}
                       </div>
                       {summary.executionTime != null && (
-                        <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                           执行耗时：{summary.executionTime.toFixed(1)} 秒
                         </div>
                       )}
                       {keptRatio != null && (
-                        <div className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2">
                           保留比例：{keptRatio.toFixed(1)}%
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                  <div className="rounded-xl border border-slate-200 bg-white/50 p-4">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                       扫描策略
                     </div>
@@ -811,11 +850,11 @@ export default function ScanResultsPage({
                           <span
                             key={strategyName}
                             title={strategyDescription}
-                            className="cursor-help rounded-full border border-emerald-700/40 bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-200"
+                            className="cursor-help rounded-full border border-emerald-700/40 bg-emerald-50/30 px-3 py-1.5 text-xs text-emerald-700"
                           >
                             {strategyTitle}
                             {typeof hitCount === "number" && (
-                              <span className="ml-1 text-emerald-400">
+                              <span className="ml-1 text-emerald-700">
                                 {hitCount}
                               </span>
                             )}
@@ -832,10 +871,10 @@ export default function ScanResultsPage({
                         summary.topSectors.slice(0, 5).map((sector) => (
                           <span
                             key={sector.sector}
-                            className="rounded-full border border-blue-700/40 bg-blue-900/20 px-3 py-1.5 text-xs text-blue-200"
+                            className="rounded-full border border-blue-700/40 bg-blue-50/20 px-3 py-1.5 text-xs text-blue-700"
                           >
                             {sector.sector}
-                            <span className="ml-1 text-blue-400">
+                            <span className="ml-1 text-blue-700">
                               {sector.count}
                             </span>
                           </span>
@@ -856,15 +895,15 @@ export default function ScanResultsPage({
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Tabs */}
-          <div className="flex bg-slate-800 border border-slate-700 rounded-lg p-1 gap-1">
+          <div className="flex bg-slate-100 border border-slate-200 rounded-lg p-1 gap-1">
             {(["list", "sectors"] as TabType[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
                   tab === t
-                    ? "bg-emerald-600 text-white"
-                    : "text-slate-400 hover:text-white"
+                    ? "bg-blue-600 text-white"
+                    : "text-slate-500 hover:text-slate-900"
                 }`}
               >
                 {t === "list" ? "候选股" : "行业共振"}
@@ -875,15 +914,15 @@ export default function ScanResultsPage({
           {/* Resonance filter */}
           {tab === "list" && (
             <div className="flex items-center gap-2">
-              <span className="text-slate-400 text-sm">命中策略过滤:</span>
+              <span className="text-slate-500 text-sm">命中策略过滤:</span>
               {[1, 2, 3, 4].map((n) => (
                 <button
                   key={n}
                   onClick={() => setMinResonance(n)}
                   className={`w-8 h-8 rounded text-sm font-bold transition-all ${
                     minResonance === n
-                      ? "bg-emerald-600 text-white"
-                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-200 text-slate-600 hover:bg-slate-300"
                   }`}
                 >
                   {n}
@@ -894,7 +933,7 @@ export default function ScanResultsPage({
 
           {tab === "list" && (
             <>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
                 排序
                 <select
                   aria-label="排序"
@@ -902,7 +941,7 @@ export default function ScanResultsPage({
                   onChange={(event) =>
                     setSortKey(event.target.value as typeof sortKey)
                   }
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-900"
                 >
                   <option value="resonance">共振数</option>
                   <option value="sector">行业强度</option>
@@ -910,13 +949,13 @@ export default function ScanResultsPage({
                   <option value="name">名称</option>
                 </select>
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
                 行业
                 <select
                   aria-label="行业过滤"
                   value={industryFilter}
                   onChange={(event) => setIndustryFilter(event.target.value)}
-                  className="max-w-[10rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white"
+                  className="max-w-[10rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-900"
                 >
                   <option value="">全部</option>
                   {industries.map((name) => (
@@ -926,13 +965,13 @@ export default function ScanResultsPage({
                   ))}
                 </select>
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
                 策略
                 <select
                   aria-label="策略过滤"
                   value={strategyFilter}
                   onChange={(event) => setStrategyFilter(event.target.value)}
-                  className="max-w-[12rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-white"
+                  className="max-w-[12rem] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-900"
                 >
                   <option value="">全部</option>
                   {strategyNames.map((name) => (
@@ -946,20 +985,20 @@ export default function ScanResultsPage({
           )}
 
           {tab === "list" && (
-            <label className="ml-auto flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300">
+            <label className="ml-auto flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
               <input
                 type="checkbox"
                 checked={showCharts}
                 onChange={(event) => setShowCharts(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                className="h-4 w-4 rounded border-slate-300 bg-white text-emerald-500 focus:ring-emerald-500"
               />
-              展示历史图表
+              滚动加载历史图表
             </label>
           )}
         </div>
 
         {loading ? (
-          <div className="text-center text-slate-400 py-12">加载中...</div>
+          <div className="text-center text-slate-500 py-12">加载中...</div>
         ) : tab === "list" ? (
           /* Stock list */
           <div className="space-y-2">
@@ -973,7 +1012,7 @@ export default function ScanResultsPage({
               return (
                 <div
                   key={r.id}
-                  className="bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-500 cursor-pointer transition-all"
+                  className="bg-slate-100 border border-slate-200 rounded-lg p-4 hover:border-slate-500 cursor-pointer transition-all"
                   onClick={() =>
                     onSelectStock(r.stockCode, r.stockName, displayDate)
                   }
@@ -981,14 +1020,14 @@ export default function ScanResultsPage({
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="truncate text-white font-semibold">
+                        <span className="truncate text-slate-900 font-semibold">
                           {r.stockName || r.stockCode}
                         </span>
-                        <span className="shrink-0 text-slate-400 text-sm">
+                        <span className="shrink-0 text-slate-500 text-sm">
                           {r.stockCode}
                         </span>
                         {r.industry && (
-                          <span className="truncate text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded">
+                          <span className="truncate text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded">
                             {r.industry}
                           </span>
                         )}
@@ -1001,7 +1040,7 @@ export default function ScanResultsPage({
                               STRATEGY_MAP[s]?.description ??
                               "该策略命中后会计入当日扫描结果。"
                             }
-                            className="cursor-help text-xs bg-emerald-900/40 border border-emerald-700/50 text-emerald-300 px-2 py-0.5 rounded"
+                            className="cursor-help text-xs bg-emerald-50/40 border border-emerald-700/50 text-emerald-700 px-2 py-0.5 rounded"
                           >
                             {STRATEGY_LABELS[s] ?? s}
                           </span>
@@ -1009,12 +1048,12 @@ export default function ScanResultsPage({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-end justify-between sm:block sm:text-right">
-                      <div className="text-emerald-400 font-bold text-lg">
+                      <div className="text-emerald-700 font-bold text-lg">
                         {r.resonanceCount}
                       </div>
                       <div className="text-slate-500 text-xs">策略共振</div>
                       {r.sectorStrength != null && (
-                        <div className="text-blue-400 text-xs mt-1">
+                        <div className="text-blue-700 text-xs mt-1">
                           RS {r.sectorStrength.toFixed(2)}
                         </div>
                       )}
@@ -1024,10 +1063,13 @@ export default function ScanResultsPage({
                     <WatchButton symbol={r.stockCode} runId={summary?.id} />
                   </div>
                   {showCharts && (
-                    <LazyLatestChart
+                    <LazyScanChart
+                      key={`${market}:${source}:${adjustment}:${scanDate}:${displayDate}:${r.stockCode}`}
                       stockCode={r.stockCode}
                       scanDate={displayDate}
-                      source={summary?.source}
+                      source={summary?.source || source}
+                      market={market}
+                      adjustment={adjustment}
                     />
                   )}
                 </div>
@@ -1045,18 +1087,18 @@ export default function ScanResultsPage({
             {sectors.map((sec) => (
               <div
                 key={sec.industry}
-                className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden"
+                className="bg-slate-100 border border-slate-200 rounded-lg overflow-hidden"
               >
-                <div className="px-4 py-3 bg-slate-750 border-b border-slate-700 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-white font-semibold">
+                    <span className="text-slate-900 font-semibold">
                       {sec.industry}
                     </span>
-                    <span className="text-sm text-slate-400">
+                    <span className="text-sm text-slate-500">
                       {sec.candidateCount} 只
                     </span>
                   </div>
-                  <span className="text-blue-400 font-bold">
+                  <span className="text-blue-700 font-bold">
                     RS {sec.rsScore == null ? "未计算" : sec.rsScore.toFixed(2)}
                   </span>
                 </div>
@@ -1067,10 +1109,10 @@ export default function ScanResultsPage({
                       onClick={() =>
                         onSelectStock(s.stockCode, s.stockName, displayDate)
                       }
-                      className="text-sm bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded px-2 py-1 text-slate-200 transition-all"
+                      className="text-sm bg-slate-200 hover:bg-slate-300 border border-slate-300 rounded px-2 py-1 text-slate-700 transition-all"
                     >
                       {s.stockName ?? s.stockCode}
-                      <span className="ml-1 text-emerald-400">
+                      <span className="ml-1 text-emerald-700">
                         ×{s.resonanceCount}
                       </span>
                     </button>

@@ -9,6 +9,8 @@
 
 No repository license has been selected. Keep the repository private until source rights and the intended license are settled. This document records provenance; it does not grant third-party rights.
 
+- The 2026-10-27 scan workflow, history metrics and stock-profile layout were checked against the live stock.zhiyu.hk `/scan` and `/stock/sz.002355` interactions. The local selection checkout was revision `415b11d9efff7545caac86beafacd8a8c3cc93a0`; it predates those routes. TradeGuard retains its own five default strategies, saved execution data and real-account boundaries.
+
 - Broker order normalization follows [Futu trading definitions](https://openapi.futunn.com/futu-api-doc/trade/trade.html) and [Longbridge order details](https://open.longbridge.com/docs/trade/order/order_detail). Standalone touched orders are not assumed to be verified stop-loss intent.
 
 - Longbridge fund unit/NAV fields follow [fund positions](https://open.longbridge.com/zh-CN/docs/trade/asset/fund); unit NAV is multiplied by holding units, and its observation date is preserved.

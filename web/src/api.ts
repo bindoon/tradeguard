@@ -1,4 +1,9 @@
-import { activeMarket, activeSource, activeAdjustment } from "./MarketContext";
+import {
+  activeMarket,
+  activeSource,
+  activeAdjustment,
+  type Market,
+} from "./MarketContext";
 import {
   KlineData,
   ScanSummary,
@@ -70,7 +75,8 @@ function normalizeScanSummary<T extends ScanSummaryPayload>(
 const inFlight = new Map<string, Promise<unknown>>();
 export async function apiFetch<T>(path: string): Promise<T> {
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
-  url.searchParams.set("market", activeMarket());
+  if (!url.searchParams.has("market"))
+    url.searchParams.set("market", activeMarket());
   if (!url.searchParams.has("source") && activeSource())
     url.searchParams.set("source", activeSource());
   if (!url.searchParams.has("adjustment"))
@@ -132,10 +138,15 @@ export async function fetchKline(
   days = 120,
   endDate?: string,
   source?: string,
+  scope?: { market: Market; adjustment: string },
 ): Promise<KlineData[]> {
   const params = new URLSearchParams({ days: String(days) });
   if (endDate) params.set("endDate", endDate);
   if (source) params.set("source", source);
+  if (scope) {
+    params.set("market", scope.market);
+    params.set("adjustment", scope.adjustment);
+  }
   return apiFetch<KlineData[]>(`/api/kline/${stockCode}?${params.toString()}`);
 }
 
@@ -213,8 +224,12 @@ export function fetchScanDates(): Promise<CachedScanDate[]> {
 }
 
 /** 所有扫描日期汇总（降序） */
-export async function fetchScanSummaries(): Promise<ScanSummary[]> {
-  const data = await apiFetch<ScanSummaryPayload[]>("/api/scan/summaries");
+export async function fetchScanSummaries(
+  allSources = false,
+): Promise<ScanSummary[]> {
+  const data = await apiFetch<ScanSummaryPayload[]>(
+    "/api/scan/summaries" + (allSources ? "?all_sources=true" : ""),
+  );
   return data.map(normalizeScanSummary);
 }
 

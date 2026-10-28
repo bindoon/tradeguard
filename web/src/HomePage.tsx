@@ -61,11 +61,11 @@ export default function HomePage(props: SelectionNavProps) {
     <SelectionShell {...props} currentSection="home">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs tracking-widest text-emerald-300">
+          <p className="text-xs tracking-widest text-emerald-700">
             我的研究与决策
           </p>
-          <h1 className="mt-2 text-3xl font-semibold text-white">每日工作台</h1>
-          <p className="mt-2 text-sm text-slate-400">
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">每日工作台</h1>
+          <p className="mt-2 text-sm text-slate-500">
             查看最近一次扫描选出的股票，点开候选查看图表与命中原因。
           </p>
         </div>
@@ -89,7 +89,7 @@ export default function HomePage(props: SelectionNavProps) {
       </header>
       {loading && <p className="tg-muted">正在整理当前市场工作台…</p>}
       {error && (
-        <p role="alert" className="tg-panel text-red-300">
+        <p role="alert" className="tg-panel text-red-600">
           {error}
           <button
             className="ml-4 underline"
@@ -106,7 +106,7 @@ export default function HomePage(props: SelectionNavProps) {
           aria-label="已有扫描可查看"
         >
           <h2 className="tg-title">本地已有扫描，当前选中的来源没有记录</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="mt-2 text-sm leading-6 text-slate-500">
             当前是 {source} · {adjustmentLabel(adjustment)}，缓存截止 {currentCache?.max_date || "未知"}。
             切换到下面的来源即可查看已保存的候选，无需重新扫描。
           </p>
@@ -167,8 +167,8 @@ export default function HomePage(props: SelectionNavProps) {
               ],
             ].map(([label, value, note]) => (
               <section className="tg-panel" key={label}>
-                <p className="text-xs text-slate-400">{label}</p>
-                <p className="my-3 text-2xl font-semibold text-white">
+                <p className="text-xs text-slate-500">{label}</p>
+                <p className="my-3 text-2xl font-semibold text-slate-900">
                   {value}
                 </p>
                 <p className="text-xs leading-5 text-slate-500">{note}</p>
@@ -176,11 +176,11 @@ export default function HomePage(props: SelectionNavProps) {
             ))}
           </div>
           <details className="tg-panel">
-            <summary className="cursor-pointer font-medium text-slate-200">持仓复核 · {data?.position_reviews.filter((r) => r.decision !== "observe").length || 0} 项待处理（展开查看）</summary>
+            <summary className="cursor-pointer font-medium text-slate-700">持仓复核 · {data?.position_reviews.filter((r) => r.decision !== "observe").length || 0} 项待处理（展开查看）</summary>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="tg-title">先看我的持仓 · 买卖复核</h2>
               <button
-                className="text-sm text-cyan-300"
+                className="text-sm text-cyan-700"
                 onClick={props.onPortfolio}
               >
                 全部账户 →
@@ -189,6 +189,10 @@ export default function HomePage(props: SelectionNavProps) {
             <p className="mt-2 text-xs leading-5 text-slate-500">
               根据当前持仓观察与已记录的退出计划复核。现金和资产按账户、币种查看；不合并不同币种。日线收盘触及计划不证明券商已成交。
             </p>
+            <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-sm leading-6 text-slate-600">
+              “资料待补充 / 更新”是说系统还不知道：现在持有多少股、行情是否够新、准备何时卖出，以及止损单是否真的生效。下方逐项列出缺什么、怎么补。没有核验到挂单，不代表你一定没挂；口述计划也不等于券商已挂单。
+              <p className="mt-2 text-xs text-slate-500">无接口账户可直接告诉 Agent：“哪个账户、哪只股票，截至什么时间仍持有多少股、成本多少；止损/止盈条件是什么、各卖多少、是否已挂单。”已挂单时再补类型、价格、数量和状态；尚未决定的项目保留待补充。</p>
+            </div>
             {!data?.position_reviews.length ? (
               <p className="tg-muted">
                 当前市场没有已保存的股票持仓，可先导入真实账户。
@@ -198,7 +202,7 @@ export default function HomePage(props: SelectionNavProps) {
                 {data.position_reviews.map((r, i) => (
                   <article
                     key={`${r.account_label}-${r.symbol}-${i}`}
-                    className="rounded-xl border border-slate-700 bg-slate-950/50 p-4"
+                    className="rounded-xl border border-slate-200 bg-slate-50/50 p-4"
                   >
                     <div className="flex flex-wrap justify-between gap-2">
                       <button
@@ -211,7 +215,7 @@ export default function HomePage(props: SelectionNavProps) {
                             ),
                           )
                         }
-                        className="font-semibold text-slate-100"
+                        className="font-semibold text-slate-900"
                       >
                         {r.name || r.symbol || r.account_label}
                         {r.symbol && (
@@ -221,28 +225,30 @@ export default function HomePage(props: SelectionNavProps) {
                         )}
                       </button>
                       <span
-                        className={`text-xs ${r.decision === "review_exit" ? "text-amber-300" : r.decision === "needs_input" ? "text-orange-300" : "text-slate-400"}`}
+                        className={`text-xs ${r.decision === "review_exit" ? "text-amber-700" : r.decision === "needs_input" ? "text-orange-700" : "text-slate-500"}`}
                       >
                         {decisionLabel[r.decision]}
                       </span>
                     </div>
+                    {r.observed_at && (
+                      <p className="mt-2 text-xs text-slate-500">持仓记录截至 {new Date(r.observed_at).toLocaleString("zh-CN")}</p>
+                    )}
                     {r.close && (
-                      <p className="mt-2 text-xs text-slate-400">
-                        {r.price_date} 缓存收盘 {r.close} {r.currency} ·
-                        持仓观察{" "}
-                        {r.observed_at
-                          ? new Date(r.observed_at).toLocaleString("zh-CN")
-                          : "未知"}
+                      <p className="mt-2 text-xs text-slate-500">
+                        {r.price_date} 缓存收盘 {r.close} {r.currency}
                       </p>
                     )}
-                    <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-400">
+                    <ul className="mt-3 space-y-1 text-sm leading-6 text-slate-500">
                       {r.reasons.map((reason) => (
                         <li key={reason}>· {reason}</li>
                       ))}
                     </ul>
+                    {r.decision === "needs_input" && (
+                      <button className="mr-4 mt-3 text-xs text-cyan-700" onClick={props.onPortfolio}>去持仓查看策略与更新方式 →</button>
+                    )}
                     {r.symbol && (
                       <button
-                        className="mt-3 text-xs text-cyan-300"
+                        className="mt-3 text-xs text-cyan-700"
                         onClick={() =>
                           openPath(
                             scopedPath(
@@ -251,7 +257,7 @@ export default function HomePage(props: SelectionNavProps) {
                           )
                         }
                       >
-                        查看图表、计划与买入检查 →
+                        查看行情与买入检查 →
                       </button>
                     )}
                   </article>
@@ -265,7 +271,7 @@ export default function HomePage(props: SelectionNavProps) {
               <div className="flex justify-between">
                 <h2 className="tg-title">{report ? `${report.trade_date} 策略候选` : "策略候选"}</h2>
                 <button
-                  className="text-sm text-cyan-300"
+                  className="text-sm text-cyan-700"
                   onClick={() =>
                     openPath(
                       scopedPath(report ? "/scan/" + report.run_id : "/scan"),
@@ -276,7 +282,7 @@ export default function HomePage(props: SelectionNavProps) {
                 </button>
               </div>
               {report && (
-                <p className="mt-3 text-xs leading-6 text-slate-400">
+                <p className="mt-3 text-xs leading-6 text-slate-500">
                   {report.source} · {adjustmentLabel(report.adjustment)} · 已扫描 {report.counts.scanned.toLocaleString()} / {report.counts.universe.toLocaleString()} 个标的，
                   {report.counts.hits} 只命中，以下展示共振排序前 {Math.min(8, report.top_resonance.length)} 只。
                   {report.status !== "success" && "本次部分完成，完整情况见扫描明细。"}
@@ -289,12 +295,12 @@ export default function HomePage(props: SelectionNavProps) {
               ) : !report.top_resonance.length ? (
                 <p className="tg-muted">本次扫描没有策略命中。</p>
               ) : (
-                <div className="mt-3 divide-y divide-slate-800">
+                <div className="mt-3 divide-y divide-slate-200">
                   {report.top_resonance.slice(0, 8).map((p) => (
                     <article key={p.symbol} className="py-4">
                       <div className="flex flex-wrap justify-between gap-3">
                         <button
-                          className="text-left font-semibold text-slate-100"
+                          className="text-left font-semibold text-slate-900"
                           onClick={() =>
                             openPath(
                               scopedPath(
@@ -309,11 +315,11 @@ export default function HomePage(props: SelectionNavProps) {
                             {p.symbol} · {p.close} {currency}
                           </span>
                         </button>
-                        <span className="text-sm text-emerald-300">
+                        <span className="text-sm text-emerald-700">
                           共振 {p.resonance_count}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs text-slate-400">
+                      <p className="mt-2 text-xs text-slate-500">
                         {p.strategies_hit
                           .map((s) => STRATEGY_MAP[s]?.title || s)
                           .join(" · ")}
@@ -336,7 +342,7 @@ export default function HomePage(props: SelectionNavProps) {
                 <div className="flex justify-between">
                   <h2 className="tg-title">我的自选</h2>
                   <button
-                    className="text-sm text-cyan-300"
+                    className="text-sm text-cyan-700"
                     onClick={() => openPath(scopedPath("/watchlist"))}
                   >
                     管理 →
@@ -355,10 +361,10 @@ export default function HomePage(props: SelectionNavProps) {
                           scopedPath("/stock/" + encodeURIComponent(w.symbol)),
                         )
                       }
-                      className="mt-3 block w-full rounded-lg bg-slate-950/50 p-3 text-left text-sm text-slate-200"
+                      className="mt-3 block w-full rounded-lg bg-slate-50/50 p-3 text-left text-sm text-slate-700"
                     >
                       {w.name || w.symbol}
-                      <span className="float-right text-xs text-slate-400">
+                      <span className="float-right text-xs text-slate-500">
                         {w.close || "暂无价格"}
                       </span>
                       <p className="mt-2 truncate text-xs text-slate-500">
@@ -372,7 +378,7 @@ export default function HomePage(props: SelectionNavProps) {
                 <div className="flex justify-between">
                   <h2 className="tg-title">待处理提醒</h2>
                   <button
-                    className="text-sm text-cyan-300"
+                    className="text-sm text-cyan-700"
                     onClick={() => openPath(scopedPath("/alerts"))}
                   >
                     查看 →
@@ -389,7 +395,7 @@ export default function HomePage(props: SelectionNavProps) {
                     .map((n) => (
                       <p
                         key={n.id}
-                        className="mt-3 border-l-2 border-amber-400/50 pl-3 text-sm leading-6 text-slate-300"
+                        className="mt-3 border-l-2 border-amber-400/50 pl-3 text-sm leading-6 text-slate-600"
                       >
                         {n.title}
                       </p>
@@ -408,7 +414,7 @@ export default function HomePage(props: SelectionNavProps) {
                   <p className="mt-3 text-xs text-slate-500">
                     {changes.previous_date} → {report?.trade_date} · {source}
                   </p>
-                  <p className="mt-3 text-sm text-slate-300">
+                  <p className="mt-3 text-sm text-slate-600">
                     新增命中 {changes.new_symbol_count} · 消失{" "}
                     {changes.dropped_symbol_count} · 命中变化{" "}
                     {changes.hit_delta}
@@ -416,7 +422,7 @@ export default function HomePage(props: SelectionNavProps) {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {changes.new_symbols.slice(0, 8).map((p) => (
                       <button
-                        className="tg-tab text-emerald-300"
+                        className="tg-tab text-emerald-700"
                         key={p.symbol}
                         onClick={() =>
                           openPath(
@@ -446,8 +452,8 @@ export default function HomePage(props: SelectionNavProps) {
                     className="mt-3 flex justify-between gap-3 text-sm"
                     key={s.sector}
                   >
-                    <span className="truncate text-slate-300">{s.sector}</span>
-                    <span className="shrink-0 text-slate-400">
+                    <span className="truncate text-slate-600">{s.sector}</span>
+                    <span className="shrink-0 text-slate-500">
                       {s.strength === null ? "强度未知" : s.strength.toFixed(2)}{" "}
                       · {s.hit_count} 命中
                     </span>
@@ -466,7 +472,7 @@ export default function HomePage(props: SelectionNavProps) {
               data.recent_checks.slice(0, 5).map((c) => (
                 <div
                   key={c.id}
-                  className="mt-3 flex flex-wrap justify-between gap-2 text-sm text-slate-300"
+                  className="mt-3 flex flex-wrap justify-between gap-2 text-sm text-slate-600"
                 >
                   <button
                     onClick={() =>

@@ -64,6 +64,27 @@ class DailyBar(Base):
     fetched_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
 
 
+class BarDateCoverage(Base):
+    """Saved row counts per market/source/day; updated with newly inserted bars."""
+
+    __tablename__ = "bar_date_coverage"
+    market: Mapped[str] = mapped_column(String(8), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    adjustment: Mapped[str] = mapped_column(String(16), primary_key=True)
+    trade_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    bar_count: Mapped[int] = mapped_column(default=0)
+
+
+class BarSeriesCoverage(Base):
+    """First observation per security/source, for exact distinct-symbol coverage."""
+
+    __tablename__ = "bar_series_coverage"
+    symbol: Mapped[str] = mapped_column(ForeignKey("security.symbol"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    adjustment: Mapped[str] = mapped_column(String(16), primary_key=True)
+    first_date: Mapped[date] = mapped_column(Date)
+
+
 class ScanResult(Base):
     __tablename__ = "scan_result"
     __table_args__ = (Index("ix_scan_result_symbol_trade_date", "symbol", "trade_date"),)

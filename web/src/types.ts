@@ -115,6 +115,10 @@ export interface ScanTopSector {
 }
 
 export interface ScanSummary {
+  adjustment?: string;
+  recordOrigin?: string;
+  dataWarnings?: string[];
+  benchmark?: string | null;
   id: string;
   market: string;
   source: string;
@@ -126,12 +130,12 @@ export interface ScanSummary {
   executionDate?: string;
   tradableCount: number;
   candidateCount: number;
-  sectorCount: number;
+  sectorCount: number | null;
   topSectors: ScanTopSector[];
   marketRegime: string; // "bull" | "neutral" | "bear"
   executionTime: number | null;
-  totalStockCount?: number;
-  filteredOutCount?: number;
+  totalStockCount?: number | null;
+  filteredOutCount?: number | null;
   scannedStockCount?: number;
   hitStockCount?: number;
   hitIndustryCount?: number;

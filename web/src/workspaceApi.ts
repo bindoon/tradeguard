@@ -209,7 +209,7 @@ export const checkTrade = (
 ) =>
   mutate<CheckResult>("/api/discipline/check", "POST", { profile_id, intent });
 export const decisionLabel: Record<string, string> = {
-  needs_input: "先补证据",
+  needs_input: "资料待补充 / 更新",
   review_exit: "复核卖出计划",
   observe: "继续观察",
   pass: "已实现检查通过",

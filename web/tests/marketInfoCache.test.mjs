@@ -101,3 +101,90 @@ test("a response from another market never populates the requested market", asyn
   await assert.rejects(cache.load("HK"), /市场状态与请求不符/);
   assert.equal(cache.peek("HK"), null);
 });
+
+function info(market, version = 1) {
+  return {
+    market, label: market, currency: "CNY", security_count: version,
+    sources: [{
+      source: "synthetic", adjustment: "forward", rows: version, symbols: 1,
+      min_date: "2026-10-22", max_date: "2026-10-23", scan_count: 1,
+      latest_scan_date: "2026-10-23",
+    }],
+    default_source: "synthetic", default_adjustment: "forward",
+    max_date: "2026-10-23", filter_defaults: {},
+  };
+}
+
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+  };
+}
+
+test("page reload restores fresh metadata without blocking on another request", async () => {
+  const storage = memoryStorage();
+  const first = createMarketInfoCache(async (market) => info(market), () => 1000, storage);
+  await first.load("CN");
+  let calls = 0;
+  const reloaded = createMarketInfoCache(async (market) => {
+    calls++;
+    return info(market, 2);
+  }, () => 2000, storage);
+  assert.equal(reloaded.peek("CN").security_count, 1);
+  assert.equal(reloaded.peek("US"), null);
+  assert.equal((await reloaded.load("CN")).security_count, 1);
+  assert.equal(calls, 0);
+  assert.equal((await reloaded.load("CN", true)).security_count, 2);
+  assert.equal(calls, 1);
+});
+
+test("stale persisted metadata displays immediately while background refresh updates it", async () => {
+  const storage = memoryStorage();
+  await createMarketInfoCache(async (market) => info(market), () => 0, storage).load("HK");
+  const next = deferred();
+  const cache = createMarketInfoCache(() => next.promise, () => 60_001, storage);
+  assert.equal(cache.peek("HK").security_count, 1);
+  const refreshing = cache.load("HK");
+  assert.equal(cache.peek("HK").security_count, 1);
+  next.resolve(info("HK", 2));
+  await refreshing;
+  assert.equal(cache.peek("HK").security_count, 2);
+});
+
+test("corrupt, mismatched, future and expired persisted entries are ignored", async () => {
+  for (const raw of [
+    "broken", "null", JSON.stringify({ data: { market: "CN" }, at: 0 }),
+    JSON.stringify({ data: info("US"), at: 0 }),
+    JSON.stringify({ data: info("CN"), at: 1001 }),
+    JSON.stringify({ data: info("CN"), at: -86_400_000 }),
+  ]) {
+    const storage = { getItem: () => raw, setItem: () => {} };
+    const cache = createMarketInfoCache(async (market) => info(market), () => 1000, storage);
+    assert.equal(cache.peek("CN"), null);
+    assert.equal((await cache.load("CN")).market, "CN");
+  }
+});
+
+test("disabled browser storage still allows reads and in-memory caching", async () => {
+  const storage = {
+    getItem() { throw new Error("denied"); },
+    setItem() { throw new Error("quota"); },
+  };
+  const cache = createMarketInfoCache(async (market) => info(market), () => 0, storage);
+  assert.equal(cache.peek("CN"), null);
+  assert.equal((await cache.load("CN")).market, "CN");
+  assert.equal(cache.peek("CN").security_count, 1);
+});
+
+test("explicit refresh propagates to the server rather than reusing its cached metadata", async () => {
+  const calls = [];
+  const cache = createMarketInfoCache(async (market, force) => {
+    calls.push([market, force]);
+    return info(market);
+  });
+  await cache.load("CN");
+  await cache.load("CN", true);
+  assert.deepEqual(calls, [["CN", false], ["CN", true]]);
+});

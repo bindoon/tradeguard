@@ -260,7 +260,10 @@ def test_position_review_keeps_missing_evidence_unknown_and_uses_recorded_exit(d
     review = position_reviews(scope)[0]
     assert review["decision"] == "needs_input"
     assert any("planned" in reason and "止盈" in reason for reason in review["reasons"])
-    assert any("券商保护单证据" in reason for reason in review["reasons"])
+    assert any("券商止损单尚未核验完整" in reason for reason in review["reasons"])
+    assert any(
+        "100" in reason and "只填计划价格不算已挂单" in reason for reason in review["reasons"]
+    )
     assert position_reviews(Scope(market="US", source="fixture")) == []
     snapshot.external_id = "verified"
     snapshot.as_of = now()
@@ -279,7 +282,10 @@ def test_position_review_keeps_missing_evidence_unknown_and_uses_recorded_exit(d
     snapshot.record_origin = "broker_api"
     save_snapshot(snapshot, broker_verified=True)
     assert position_reviews(scope)[0]["decision"] == "review_exit"
-    assert position_reviews(Scope(market="CN", source="missing"))[0]["decision"] == "needs_input"
+    missing = position_reviews(Scope(market="CN", source="missing"))[0]
+    assert missing["decision"] == "needs_input"
+    assert any("600000.SH · missing · 前复权" in reason for reason in missing["reasons"])
+    assert any("刷新页面不会采集行情" in reason for reason in missing["reasons"])
 
 
 def test_workspace_cli_and_migration_round_trip(database, tmp_path):

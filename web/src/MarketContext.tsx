@@ -213,16 +213,16 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       {info ? (
         children
       ) : (
-        <div className="min-h-screen space-y-4 bg-slate-950 p-4 text-slate-300 sm:p-6">
+        <div className="min-h-screen space-y-4 bg-slate-50 p-4 text-slate-600 sm:p-6">
           <MarketBar />
           <div
             role={error ? "alert" : "status"}
-            className="rounded-xl border border-slate-800 p-6 text-sm"
+            className="rounded-xl border border-slate-200 p-6 text-sm"
           >
             {error || `正在读取 ${market} 市场与缓存状态…`}
             {error && (
               <button
-                className="ml-4 text-emerald-300 underline"
+                className="ml-4 text-emerald-700 underline"
                 onClick={refreshMarket}
               >
                 重试
@@ -254,12 +254,18 @@ export function MarketBar() {
   const current = info?.sources.find(
     (s) => s.source === source && s.adjustment === adjustment,
   );
+  const isScanHistory = location.pathname.replace(/\/+$/, "") === "/scan";
+  const latestScanDate = info?.sources
+    .filter((item) => item.adjustment === adjustment)
+    .map((item) => item.latest_scan_date || "")
+    .sort()
+    .slice(-1)[0];
   return (
     <div
-      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3"
-      aria-label="市场与数据来源"
+      className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 py-3"
+      aria-label="市场与行情状态"
     >
-      <div className="flex gap-1 rounded-xl bg-slate-900 p-1">
+      <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
         {(
           [
             ["CN", "A 股 · CNY"],
@@ -276,55 +282,79 @@ export function MarketBar() {
               history.replaceState(null, "", url.pathname);
               setMarket(code);
             }}
-            className={`rounded-lg px-3 py-2 text-sm ${market === code ? "bg-emerald-500/20 text-emerald-200" : "text-slate-400 hover:text-white"}`}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${market === code ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
           >
             {label}
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         {info && info.sources.length > 0 ? (
           <>
-            <select
-              aria-label="行情数据来源"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-2 text-slate-200"
-              value={`${source}|${adjustment}`}
-              onChange={(e) => {
-                const [src, adj] = e.target.value.split("|");
-                const url = new URL(location.href);
-                url.searchParams.delete("source");
-                url.searchParams.delete("adjustment");
-                history.replaceState(null, "", url.pathname + url.search);
-                setSource(src, adj);
-              }}
-            >
-              {!current && (
-                <option value={`${source}|${adjustment}`}>
-                  {source} · 暂无缓存
-                </option>
-              )}
-              {info.sources.map((s) => (
-                <option
-                  key={`${s.source}|${s.adjustment}`}
-                  value={`${s.source}|${s.adjustment}`}
-                >
-                  {s.source === "legacy_mysql" ? "已导入行情" : s.source} ·{" "}
-                  {(
-                    {
-                      forward: "前复权",
-                      none: "不复权",
-                      backward: "后复权",
-                    } as Record<string, string>
-                  )[s.adjustment] || s.adjustment}{" "}
-                  · {s.symbols.toLocaleString()} 个标的 · {s.scan_count ?? 0}{" "}
-                  次扫描
-                </option>
-              ))}
-            </select>
             <span>
-              缓存截止{" "}
-              <b className="text-slate-200">{current?.max_date || "未知"}</b>
+              {isScanHistory ? "最近扫描" : "行情截至"}{" "}
+              <b className="text-slate-700">
+                {isScanHistory
+                  ? latestScanDate || "暂无记录"
+                  : current?.max_date || "未知"}
+              </b>
             </span>
+            <details className="relative">
+              <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+                数据说明
+              </summary>
+              <div className="absolute right-0 top-7 z-50 w-80 max-w-[85vw] space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl max-sm:fixed max-sm:inset-x-4 max-sm:top-28 max-sm:w-auto max-sm:max-w-none">
+                <p className="leading-5">
+                  当前行情：{source} ·{" "}
+                  {adjustment === "forward"
+                    ? "前复权"
+                    : adjustment === "backward"
+                      ? "后复权"
+                      : "不复权"}
+                  。从扫描进入股票页会沿用该批次的数据与截止日期。
+                </p>
+                <label className="block space-y-2">
+                  <span>其他历史数据</span>
+                  <select
+                    aria-label="行情数据来源"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
+                    value={`${source}|${adjustment}`}
+                    onChange={(e) => {
+                      const [src, adj] = e.target.value.split("|");
+                      const url = new URL(location.href);
+                      url.searchParams.delete("source");
+                      url.searchParams.delete("adjustment");
+                      history.replaceState(null, "", url.pathname + url.search);
+                      setSource(src, adj);
+                    }}
+                  >
+                    {!current && (
+                      <option value={`${source}|${adjustment}`}>
+                        {source} · 暂无缓存
+                      </option>
+                    )}
+                    {info.sources.map((s) => (
+                      <option
+                        key={`${s.source}|${s.adjustment}`}
+                        value={`${s.source}|${s.adjustment}`}
+                      >
+                        {s.source === "legacy_mysql" ? "已导入行情" : s.source}{" "}
+                        ·{" "}
+                        {(
+                          {
+                            forward: "前复权",
+                            none: "不复权",
+                            backward: "后复权",
+                          } as Record<string, string>
+                        )[s.adjustment] || s.adjustment}{" "}
+                        · {s.symbols.toLocaleString()} 个标的 ·{" "}
+                        {s.scan_count ?? 0} 次扫描
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </details>
           </>
         ) : (
           <span>
@@ -334,7 +364,7 @@ export function MarketBar() {
           </span>
         )}
         {error && info && (
-          <span role="status" className="text-amber-300">
+          <span role="status" className="text-amber-700">
             状态更新失败，保留上次读取结果
           </span>
         )}
@@ -344,7 +374,7 @@ export function MarketBar() {
           title="重新读取当前市场的缓存范围与扫描次数"
           disabled={refreshing}
           onClick={refreshMarket}
-          className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"
         >
           <RefreshCw
             className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}

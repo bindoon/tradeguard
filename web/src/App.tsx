@@ -119,8 +119,13 @@ function App() {
       <ScanPage
         {...navProps}
         onBack={() => navigate({ type: "home" })}
-        onSelectDate={(date) =>
-          navigate({ type: "scan-results", scanDate: date })
+        onSelectDate={(date, source, adjustment) =>
+          openPath(
+            scopedPath("/scan/" + encodeURIComponent(date), {
+              ...(source ? { source } : {}),
+              ...(adjustment ? { adjustment } : {}),
+            }),
+          )
         }
       />
     );

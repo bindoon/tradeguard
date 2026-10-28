@@ -406,7 +406,9 @@ def position_reviews(scope: Scope) -> list[dict]:
                         "account_label": account.label,
                         "symbol": None,
                         "decision": "needs_input",
-                        "reasons": ["缺少完整账户快照"],
+                        "reasons": [
+                            "缺少完整账户快照：请同步券商；无接口账户请提供账户资产、现金、全部持仓及观察时间，不能把未知当作空仓"
+                        ],
                     }
                 )
                 continue
@@ -429,11 +431,25 @@ def position_reviews(scope: Scope) -> list[dict]:
                     minutes=-1
                 ) <= now() - observed <= timedelta(hours=24)
                 if stale:
-                    reasons.append("持仓观察已超过 24 小时，请先同步或口述更新")
+                    reasons.append(
+                        "持仓需要更新：记录已超过 24 小时或时间异常。"
+                        "请同步券商，或告诉 Agent 现在是否仍持有、股数、成本和确认时间"
+                    )
+                adjustment_label = {
+                    "forward": "前复权",
+                    "backward": "后复权",
+                    "none": "不复权",
+                }[scope.adjustment]
                 if bar is None:
-                    reasons.append("当前来源没有可用行情")
+                    reasons.append(
+                        f"缺这只股票的行情（{position.symbol} · {scope.source} · {adjustment_label}）："
+                        "可让 Agent 补这只股票在该来源、复权方式下的已收盘日线；刷新页面不会采集行情"
+                    )
                 elif today() - bar.trade_date > timedelta(days=4):
-                    reasons.append("行情距今超过 4 个自然日，仅供历史复核")
+                    reasons.append(
+                        f"行情距今超过 4 个自然日（最近：{bar.trade_date} · {scope.source}）："
+                        "需补该股票同源、同复权的近期已收盘日线，当前仅供历史复核"
+                    )
                 orders = [
                     o
                     for o in snap.orders
@@ -461,7 +477,10 @@ def position_reviews(scope: Scope) -> list[dict]:
                             f"{bar.trade_date} 同源收盘 {bar.close} {position.currency} 达到已记录{exits[-1]} {threshold}；证据：{order.evidence}"
                         )
                 if not orders:
-                    reasons.append("没有已记录的卖出计划或条件单，需补充退出依据")
+                    reasons.append(
+                        "缺退出计划：没有已记录的卖出计划或条件单。"
+                        "请提供止损价、止盈价或退出条件，以及各卖多少股/多少比例；尚未决定就保留待补充"
+                    )
                 covered = sum(
                     (
                         o.quantity or Decimal(0)
@@ -478,7 +497,12 @@ def position_reviews(scope: Scope) -> list[dict]:
                 )
                 missing_protection = covered < position.quantity
                 if missing_protection:
-                    reasons.append("未取得新鲜、足量的券商保护单证据")
+                    reasons.append(
+                        "券商止损单尚未核验完整："
+                        f"系统仅核验到 {covered} / {position.quantity} 股的有效止损覆盖。"
+                        "请同步券商确认止损单类型、有效状态、数量和更新时间；"
+                        "无接口账户可口述实际挂单情况，标为人工确认，仍不冒充券商核验。只填计划价格不算已挂单"
+                    )
                 signal = latest_signal(db, position.symbol, scope, today())
                 result.append(
                     {

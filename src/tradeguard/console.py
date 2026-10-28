@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from tradeguard.db import session
@@ -23,6 +23,7 @@ from tradeguard.db.models import (
     Security,
     now,
 )
+from tradeguard.market.coverage import source_coverage
 from tradeguard.market.schemas import normalize_symbol
 from tradeguard.portfolio.schemas import ManualPatch
 from tradeguard.portfolio.service import create_account, manual_update
@@ -56,39 +57,16 @@ def context_data(market):
             db.scalar(select(func.count()).select_from(Security).where(Security.market == market))
             or 0
         )
-        rows = db.execute(
-            select(
-                DailyBar.source,
-                DailyBar.adjustment,
-                func.count(),
-                func.count(func.distinct(DailyBar.symbol)),
-                func.min(DailyBar.trade_date),
-                func.max(DailyBar.trade_date),
-            )
-            .join(Security, Security.symbol == DailyBar.symbol)
-            .where(Security.market == market, DailyBar.trade_date <= today())
-            .group_by(DailyBar.source, DailyBar.adjustment)
-            # Small universes must seek their symbols, not scan millions of CN bars.
-            .with_hint(
-                DailyBar,
-                "FORCE INDEX (PRIMARY)"
-                if securities <= 512
-                else "FORCE INDEX (ix_daily_bar_source_adjustment_date)",
-                "mysql",
-            )
-        ).all()
+        rows = source_coverage(db, market, today())
         activity = source_activity(db, market)
     sources = [
         {
-            "source": s,
-            "adjustment": a,
-            "rows": n,
-            "symbols": sy,
-            "min_date": str(mi),
-            "max_date": str(ma),
-            **activity.get((s, a), {"scan_count": 0, "latest_scan_date": None}),
+            **row,
+            **activity.get(
+                (row["source"], row["adjustment"]), {"scan_count": 0, "latest_scan_date": None}
+            ),
         }
-        for s, a, n, sy, mi, ma in rows
+        for row in rows
     ]
     preferred = preferred_source(sources)
     return {
@@ -115,6 +93,7 @@ def scan_query(market: str, source: str = "", adjustment: str = "forward"):
     query = select(Run).where(
         Run.kind == "scan",
         Run.market == market,
+        Run.market_date <= today(),
         func.coalesce(Run.details["adjustment"].as_string(), "forward") == adjustment,
     )
     if source:
@@ -130,16 +109,18 @@ def get_run(db, identifier, market, source="", adjustment="forward"):
             day = date.fromisoformat(identifier)
         except ValueError:
             raise HTTPException(404, "扫描批次不存在") from None
-        run = db.scalar(
+        candidates = db.execute(
             scan_query(market, source, adjustment)
+            .with_only_columns(Run.id, Run.started_at)
             .where(Run.market_date == day)
-            .order_by(Run.started_at.desc())
-            .limit(1)
-        )
+        ).all()
+        identifier = max(candidates, key=lambda item: item.started_at).id if candidates else None
+        run = db.get(Run, identifier) if identifier else None
     if (
         run is None
         or run.kind != "scan"
         or run.market != market
+        or (run.market_date is not None and run.market_date > today())
         or (source and run.details.get("source") != source)
         or run.details.get("adjustment", "forward") != adjustment
     ):
@@ -170,11 +151,17 @@ def result_rows(db, run):
     ]
 
 
-def summary(run, rows):
+def summary(run, rows=None, *, groups=None, resonant_groups=None):
     d = run.details
-    groups = Counter(r["industry"] or "未知" for r in rows)
+    if groups is None:
+        groups = Counter(r["industry"] or "未知" for r in rows or [])
+    if resonant_groups is None:
+        resonant_groups = Counter(
+            r["industry"] or "未知" for r in rows or [] if r["resonanceCount"] >= 2
+        )
     totals = d.get("universe", 0)
     skipped = d.get("skipped", [])
+    fallback_scanned = totals - len(skipped) if totals is not None else None
     duration = ((run.finished_at or now()) - run.started_at).total_seconds()
     options = d.get("filter_options", {})
     return {
@@ -182,26 +169,29 @@ def summary(run, rows):
         "scanDate": str(run.market_date or d.get("date", "")),
         "market": run.market,
         "source": d.get("source"),
+        "adjustment": d.get("adjustment", "forward"),
+        "recordOrigin": d.get("record_origin", "native"),
+        "dataWarnings": d.get("data_warnings", []),
         "status": run.status,
         "executionDate": run.started_at.isoformat(),
         "executionTime": duration,
-        "tradableCount": d.get("scanned_count", totals - len(skipped)),
-        "candidateCount": d.get("resonance_count", sum(r["resonanceCount"] >= 2 for r in rows)),
-        "hitStockCount": len(rows),
+        "tradableCount": d.get("scanned_count", fallback_scanned),
+        "candidateCount": d.get("resonance_count", sum(resonant_groups.values())),
+        "hitStockCount": sum(groups.values()),
         "hitIndustryCount": len(groups),
-        "sectorCount": sum(v > 0 for v in d.get("sector_strength", {}).values()),
-        "resonanceIndustryCount": sum(
-            sum(r["resonanceCount"] >= 2 for r in rows if (r["industry"] or "未知") == ind) >= 2
-            for ind in groups
-        ),
+        "sectorCount": None
+        if d.get("record_origin") == "legacy_scan_cache"
+        else sum(v > 0 for v in d.get("sector_strength", {}).values()),
+        "resonanceIndustryCount": sum(count >= 2 for count in resonant_groups.values()),
         "topSectors": [
             {"sector": name, "rs": d.get("sector_strength", {}).get(name), "count": count}
-            for name, count in groups.most_common(8)
+            for name, count in sorted(groups.items(), key=lambda item: (-item[1], item[0]))[:8]
         ],
         "marketRegime": d.get("market_regime", "unknown"),
+        "benchmark": d.get("benchmark"),
         "totalStockCount": totals,
-        "filteredOutCount": len(skipped),
-        "scannedStockCount": d.get("scanned_count", totals - len(skipped)),
+        "filteredOutCount": d.get("filtered_out_count", len(skipped)),
+        "scannedStockCount": d.get("scanned_count", fallback_scanned),
         "scanStrategies": d.get("strategies", []),
         "strategyHitCounts": d.get("strategy_hit_counts", {}),
         "filterCounts": d.get("filter_counts", dict(Counter(s["reason"] for s in skipped))),
@@ -219,6 +209,37 @@ def summary(run, rows):
             "limitPct": options.get("limit_pct"),
         },
     }
+
+
+def saved_summaries(db, runs):
+    """Aggregate all displayed runs once, without loading strategy metadata per stock."""
+    if not runs:
+        return []
+    industry = func.coalesce(
+        func.nullif(ScanResult.metadata_snapshot["industry"].as_string(), ""),
+        func.nullif(Security.industry, ""),
+        "未知",
+    )
+    rows = db.execute(
+        select(
+            ScanResult.run_id,
+            industry,
+            func.count(),
+            func.sum(case((func.json_length(ScanResult.hits) >= 2, 1), else_=0)),
+        )
+        .join(Security, Security.symbol == ScanResult.symbol)
+        .where(ScanResult.run_id.in_([run.id for run in runs]))
+        .group_by(ScanResult.run_id, industry)
+        .order_by(ScanResult.run_id, industry)
+    ).all()
+    groups: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    resonant_groups: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for run_id, name, count, resonant in rows:
+        groups[run_id][name] = count
+        resonant_groups[run_id][name] = int(resonant)
+    return [
+        summary(run, groups=groups[run.id], resonant_groups=resonant_groups[run.id]) for run in runs
+    ]
 
 
 def safe_worker(run_id, payload):
@@ -252,8 +273,8 @@ def stock_signals(
         security = db.get(Security, symbol)
         if security is None or security.market != market:
             raise HTTPException(404, "标的不存在于当前市场")
-        rows = db.execute(
-            select(ScanResult, Run)
+        rows = db.scalars(
+            select(ScanResult)
             .join(Run, Run.id == ScanResult.run_id)
             .where(
                 ScanResult.symbol == symbol,
@@ -268,9 +289,7 @@ def stock_signals(
         ).all()
     seen: set[date] = set()
     payload = []
-    for result, run in rows:
-        if chosen and (run.details or {}).get("source") != chosen:
-            continue
+    for result in rows:
         if result.trade_date in seen:
             continue
         seen.add(result.trade_date)
@@ -351,7 +370,8 @@ def create_app():
         return JSONResponse({"detail": str(exc)}, status_code=422)
 
     @app.get("/api/context")
-    def context(market: str = "CN"):
+    def context(market: str = "CN", refresh: bool = False):
+        ensure_market(market)
         return context_data(market)
 
     @app.get("/api/workspace")
@@ -411,6 +431,12 @@ def create_app():
     def notification_read(identifier: str):
         return workspace.mark_read(identifier)
 
+    @app.get("/api/discipline/playbook")
+    def discipline_playbook():
+        from tradeguard.discipline.playbook import latest_playbook
+
+        return latest_playbook()
+
     @app.post("/api/discipline/check")
     def check_trade(payload: CheckInput):
         from tradeguard.discipline.schemas import Intent
@@ -425,13 +451,32 @@ def create_app():
         return {"database": "mysql", "migration": revision, "status": "ok"}
 
     @app.get("/api/scan/summaries")
-    def scan_summaries(market: str = "CN", source: str = "", adjustment: str = "forward"):
+    def scan_summaries(
+        market: str = "CN", source: str = "", adjustment: str = "forward", all_sources: bool = False
+    ):
         ensure_market(market)
         with session() as db:
-            runs = db.scalars(
-                scan_query(market, source, adjustment).order_by(Run.started_at.desc()).limit(200)
+            candidates = db.execute(
+                scan_query(market, "" if all_sources else source, adjustment).with_only_columns(
+                    Run.id, Run.started_at
+                )
             ).all()
-            return [summary(run, result_rows(db, run)) for run in runs]
+            # Even a SELECT id filesort can carry JSON predicate values in MySQL.
+            # Read only small ID/time pairs without ORDER BY, then sort those in Python.
+            identifiers = [
+                item.id
+                for item in sorted(candidates, key=lambda item: item.started_at, reverse=True)[:200]
+            ]
+            by_id = (
+                {
+                    run.id: run
+                    for run in db.scalars(select(Run).where(Run.id.in_(identifiers))).all()
+                }
+                if identifiers
+                else {}
+            )
+            runs = [by_id[identifier] for identifier in identifiers]
+            return saved_summaries(db, runs)
 
     @app.get("/api/scan/dates")
     def scan_dates(market: str, source: str = "", adjustment: str = "forward"):
@@ -467,7 +512,7 @@ def create_app():
     ):
         with session() as db:
             run = get_run(db, identifier, market, source, adjustment)
-            return summary(run, result_rows(db, run))
+            return saved_summaries(db, [run])[0]
 
     @app.get("/api/scan/{identifier}/results")
     def scan_results(
@@ -578,6 +623,19 @@ def create_app():
             }
             for r, b in zip(records, bars, strict=True)
         ]
+
+    @app.get("/api/securities/names")
+    def security_names(symbols: str):
+        items = list(dict.fromkeys(symbols.split(",")))
+        if not 1 <= len(items) <= 10:
+            raise HTTPException(422, "一次查询 1～10 个证券名称")
+        chosen = [normalize_symbol(item) for item in items]
+        with session() as db:
+            return dict(
+                db.execute(
+                    select(Security.symbol, Security.name).where(Security.symbol.in_(chosen))
+                ).all()
+            )
 
     @app.get("/api/stocks/{symbol}/profile")
     def profile(

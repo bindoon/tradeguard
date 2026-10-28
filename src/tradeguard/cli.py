@@ -187,6 +187,14 @@ def scan_run(
     )
 
 
+@scan_app.command("import-legacy")
+def scan_import_legacy(market: str = "CN"):
+    """Import successful historical scans from the configured read-only legacy cache."""
+    from tradeguard.screening.legacy import import_scans
+
+    output(lambda: import_scans(market.upper()))
+
+
 @scan_app.command("results")
 def scan_results(run_id: str):
     from tradeguard.screening.service import results
@@ -278,6 +286,14 @@ def rules_import(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)
     from tradeguard.discipline.service import save_rules
 
     output(lambda: save_rules(Rules.model_validate(load(file))))
+
+
+@discipline.command("playbook-import")
+def playbook_import(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    """Save an explicit private reminder version without activating numeric checks."""
+    from tradeguard.discipline.playbook import Playbook, save_playbook
+
+    output(lambda: save_playbook(Playbook.model_validate(load(file))))
 
 
 @discipline.command("check")

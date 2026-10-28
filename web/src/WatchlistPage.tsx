@@ -35,12 +35,12 @@ export default function WatchlistPage(props: SelectionNavProps) {
   }, [market, source, adjustment, tick]);
   return (
     <SelectionShell {...props} currentSection="watchlist">
-      <h1 className="text-3xl font-semibold text-white">我的自选</h1>
-      <p className="text-sm text-slate-400">
+      <h1 className="text-3xl font-semibold text-slate-900">我的自选</h1>
+      <p className="text-sm text-slate-500">
         自选是研究队列，独立于真实持仓。按当前市场、来源和复权保存。
       </p>
       {error && (
-        <p role="alert" className="tg-panel text-red-300">
+        <p role="alert" className="tg-panel text-red-600">
           {error}
         </p>
       )}
@@ -74,7 +74,7 @@ export default function WatchlistPage(props: SelectionNavProps) {
                     {row.symbol}
                   </span>
                 </button>
-                <span className="text-sm text-slate-300">
+                <span className="text-sm text-slate-600">
                   {row.close || "—"} {row.currency}
                 </span>
               </div>
@@ -82,7 +82,7 @@ export default function WatchlistPage(props: SelectionNavProps) {
                 缓存收盘 {row.price_date || "暂无行情"} · {row.source} ·{" "}
                 {row.adjustment}
               </p>
-              <p className="mt-3 text-sm text-emerald-300">
+              <p className="mt-3 text-sm text-emerald-700">
                 {row.signal_date
                   ? `${row.signal_date} · ${row.strategies.map((s) => STRATEGY_MAP[s]?.title || s).join("、")}`
                   : "当前来源尚无已保存信号"}
@@ -105,7 +105,7 @@ export default function WatchlistPage(props: SelectionNavProps) {
                   }
                 }}
               >
-                <label className="text-xs text-slate-400">
+                <label className="text-xs text-slate-500">
                   观察原因与研究计划
                   <textarea
                     key={row.reason}
@@ -124,7 +124,7 @@ export default function WatchlistPage(props: SelectionNavProps) {
                   {row.scan_run_id && (
                     <button
                       type="button"
-                      className="text-xs text-cyan-300"
+                      className="text-xs text-cyan-700"
                       onClick={() =>
                         openPath(scopedPath("/scan/" + row.scan_run_id))
                       }
@@ -135,7 +135,7 @@ export default function WatchlistPage(props: SelectionNavProps) {
                   <button
                     type="button"
                     disabled={!!busy}
-                    className="ml-auto text-xs text-slate-500 hover:text-red-300"
+                    className="ml-auto text-xs text-slate-500 hover:text-red-600"
                     onClick={async () => {
                       setBusy(row.id);
                       try {

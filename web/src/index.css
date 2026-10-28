@@ -10,7 +10,7 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -22,7 +22,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
   }
 
@@ -54,6 +54,7 @@
 
   html {
     min-height: 100%;
+    color-scheme: light;
   }
 
   body {
@@ -61,7 +62,9 @@
     margin: 0;
     min-height: 100vh;
     overflow-x: hidden;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -92,12 +95,57 @@
 }
 
 @layer components {
-  .tg-panel { @apply rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5; }
-  .tg-input { @apply rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none; }
-  .tg-button { @apply rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:border-emerald-400/70 hover:text-white disabled:cursor-wait disabled:opacity-40; }
-  .tg-primary { @apply rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40; }
-  .tg-tab { @apply rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300; }
-  .tg-muted { @apply py-4 text-sm leading-6 text-slate-400; }
-  .tg-title { @apply text-lg font-semibold text-white; }
-  button:focus-visible, a:focus-visible { @apply outline outline-2 outline-offset-2 outline-emerald-400; }
+  .tg-panel {
+    @apply rounded-xl border border-slate-200 bg-white p-5 shadow-sm;
+  }
+  .tg-input {
+    @apply rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100;
+  }
+  .tg-button {
+    @apply rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .tg-primary {
+    @apply rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .tg-muted {
+    @apply py-4 text-sm leading-6 text-slate-500;
+  }
+  .tg-title {
+    @apply text-lg font-semibold text-slate-900;
+  }
+  .tg-tab {
+    @apply rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600;
+  }
+  .tg-page {
+    background: #f4f6fa;
+  }
+  .tg-tab-strip {
+    scrollbar-width: none;
+  }
+  .tg-tab-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .tg-workspace-tab {
+    @apply relative flex shrink-0 items-center border-r border-slate-200 bg-slate-50 text-sm text-slate-600 transition hover:bg-white hover:text-slate-900;
+  }
+  .tg-workspace-tab[data-active="true"] {
+    @apply bg-white text-blue-700;
+    box-shadow: inset 0 -3px 0 #2563eb;
+  }
+  .tg-workspace-tab:focus-within {
+    z-index: 1;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  summary:focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-blue-500;
+  }
+  button,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
 }

@@ -75,19 +75,19 @@ export default function ScanProgress({
     : 0;
   return (
     <section
-      className="rounded-xl border border-slate-700 bg-slate-900/80 p-4"
+      className="rounded-xl border border-slate-200 bg-white/80 p-4"
       aria-label="本次扫描过程"
     >
       <div className="mb-3 flex justify-between">
         <button
           type="button"
-          className="text-sm font-medium text-slate-200"
+          className="text-sm font-medium text-slate-700"
           aria-expanded={showDetails}
           onClick={() => setExpanded((value) => !value)}
         >
           扫描过程 {showDetails ? "▾" : "▸"}
         </button>
-        <span className="text-xs text-emerald-300">
+        <span className="text-xs text-emerald-700">
           {(
             {
               success: "已完成",
@@ -100,10 +100,10 @@ export default function ScanProgress({
           )[state?.status || ""] || "读取中"}
         </span>
       </div>
-      {error && <p className="text-amber-300 text-sm">{error}</p>}
+      {error && <p className="text-amber-700 text-sm">{error}</p>}
       {showDetails && last && (
         <>
-          <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div
               className="h-full bg-emerald-400 transition-all"
               style={{ width: percent + "%" }}
@@ -122,30 +122,30 @@ export default function ScanProgress({
                 <time className="shrink-0 text-slate-500">
                   {new Date(e.at).toLocaleTimeString("zh-CN")}
                 </time>
-                <span className="text-slate-300">{e.message}</span>
+                <span className="text-slate-600">{e.message}</span>
               </li>
             ))}
           </ol>
           {state && state.events.length === 0 && (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-500">
               该历史批次未记录逐步日志；汇总和明细仍来自保存的数据。
             </p>
           )}
           {!!state?.skipped.length && (
             <>
               <button
-                className="mt-3 text-xs text-cyan-300"
+                className="mt-3 text-xs text-cyan-700"
                 onClick={() => setShowSkipped(!showSkipped)}
               >
                 {showSkipped ? "收起" : "查看"}过滤 / 缺失明细（
                 {state.skipped.length}）
               </button>
               {showSkipped && (
-                <div className="mt-2 max-h-48 overflow-y-auto text-xs text-slate-400">
+                <div className="mt-2 max-h-48 overflow-y-auto text-xs text-slate-500">
                   {state.skipped.map((s) => (
                     <div
                       key={s.symbol}
-                      className="flex justify-between border-b border-white/5 py-1"
+                      className="flex justify-between border-b border-slate-200 py-1"
                     >
                       <span>{s.symbol}</span>
                       <span>{REASONS[s.reason] || s.reason}</span>
