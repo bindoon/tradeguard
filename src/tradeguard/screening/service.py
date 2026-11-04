@@ -25,7 +25,6 @@ from tradeguard.db.models import (
 from tradeguard.db.write import upsert
 from tradeguard.screening import indicators
 from tradeguard.screening.filters import FilterOptions, rejection
-from tradeguard.screening.strategies.registry import get_registered_strategies
 
 DEFAULT_STRATEGIES = [
     "ma_golden_cross",
@@ -78,6 +77,7 @@ def scan(
     market: str = "CN",
     filters: dict | None = None,
     run_id: str | None = None,
+    strategy_names: list[str] | None = None,
 ) -> dict:
     if min_resonance < 1:
         raise ValueError("min_resonance must be positive")
@@ -91,7 +91,15 @@ def scan(
     try:
         with named_lock(f"scan:{market}"):
             return _scan(
-                target, source, adjustment, symbols, min_resonance, market, options, run_id
+                target,
+                source,
+                adjustment,
+                symbols,
+                min_resonance,
+                market,
+                options,
+                run_id,
+                strategy_names,
             )
     except Exception as exc:
         with session() as db, db.begin():
@@ -106,9 +114,16 @@ def scan(
         raise
 
 
-def _scan(target, source, adjustment, symbols, min_resonance, market, options, run_id):
-    strategies = get_registered_strategies(DEFAULT_STRATEGIES)
-    modules = [inspect.getmodule(s.__class__) for s in strategies]
+def _scan(
+    target, source, adjustment, symbols, min_resonance, market, options, run_id, strategy_names=None
+):
+    from tradeguard.backtesting.plugins import scan_plugins, signal_at
+
+    strategies, dependencies = scan_plugins(
+        strategy_names if strategy_names is not None else DEFAULT_STRATEGIES,
+        explicit=strategy_names is not None,
+    )
+    modules = [inspect.getmodule(s.__class__) for s in dependencies.values()]
     version = hashlib.sha256(
         (
             inspect.getsource(indicators) + "".join(inspect.getsource(m) for m in modules if m)
@@ -238,14 +253,10 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
             frame = pd.DataFrame(data)
             hit_details = []
             for strategy in strategies:
-                found = strategy.screen(
-                    stock_code=security.symbol,
-                    stock_name=security.name,
-                    df=frame.copy(),
-                    result_date=str(target),
-                    industry=sector_name or "未知",
-                )
-                if found:
+                found = signal_at(strategy, frame, security.symbol, security.name, dependencies)
+                if found is None:
+                    warnings["signal_history:" + strategy.name] += 1
+                if found and found["hit"]:
                     hit_details.append(
                         {
                             "strategy": strategy.name,
@@ -327,13 +338,15 @@ def _scan(target, source, adjustment, symbols, min_resonance, market, options, r
         "market_regime": regime,
         "benchmark": benchmark,
         "strategy_version": version,
-        "strategies": DEFAULT_STRATEGIES,
+        "strategies": [strategy.name for strategy in strategies],
         "strategy_hit_counts": dict(hit_counts),
         "input_hash": digest.hexdigest(),
         "min_resonance": min_resonance,
         "filter_options": config,
     }
-    incomplete = any(s["reason"] in {"missing_target_bar", "insufficient_history"} for s in skipped)
+    incomplete = any(
+        s["reason"] in {"missing_target_bar", "insufficient_history"} for s in skipped
+    ) or any(key.startswith("signal_history:") for key in warnings)
     with session() as db, db.begin():
         run = db.get(Run, run_id)
         assert run is not None

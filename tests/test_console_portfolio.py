@@ -198,3 +198,52 @@ def test_console_background_scan_reaches_saved_terminal_event(database):
         json={"date": imported["max_date"], "market": "CN", "source": "synthetic"},
     )
     assert rejected.status_code == 403
+
+
+@pytest.mark.parametrize("cost", ["-12.8", "-150.0519", "0", "10"])
+def test_console_preserves_diluted_cost_when_reading_and_patching(database, cost):
+    _, _, snapshot = inputs()
+    snapshot.positions = [
+        Position(
+            symbol="600000.SH",
+            currency="CNY",
+            quantity="100",
+            average_cost=cost,
+            market_value="1200",
+        )
+    ]
+    snapshot.orders = []
+    save_snapshot(snapshot)
+    client = TestClient(create_app())
+    response = client.get("/api/portfolio/accounts")
+    assert response.status_code == 200
+    position = response.json()["accounts"][0]["snapshot"]["positions"][0]
+    assert Decimal(position["average_cost"]) == Decimal(cost)
+    assert Decimal(position["pnl"]) == Decimal("1200") - Decimal(cost) * 100
+    assert position["pnl_percent"] == ("0.2" if Decimal(cost) > 0 else None)
+    manual_update(
+        snapshot.account_id,
+        ManualPatch(
+            statement="更新该持仓的摊薄成本",
+            as_of=now(),
+            positions=[{"symbol": "600000.SH", "average_cost": cost}],
+        ),
+    )
+    updated = client.get("/api/portfolio/accounts")
+    assert updated.status_code == 200
+    assert Decimal(
+        updated.json()["accounts"][0]["snapshot"]["positions"][0]["average_cost"]
+    ) == Decimal(cost)
+    assert client.get("/api/workspace?market=CN&source=fixture").status_code == 200
+
+
+@pytest.mark.parametrize("cost", ["NaN", "Infinity", "-Infinity"])
+def test_diluted_cost_still_rejects_non_finite_numbers(cost):
+    with pytest.raises(ValidationError):
+        Position(symbol="600000.SH", currency="CNY", quantity="100", average_cost=cost)
+    with pytest.raises(ValidationError):
+        ManualPatch(
+            statement="invalid",
+            as_of=now(),
+            positions=[{"symbol": "600000.SH", "average_cost": cost}],
+        )

@@ -103,13 +103,7 @@ class BollingerBreakoutStrategy(BaseSignalStrategy):
         return df
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Entry: close breaks above bb_upper + volume > volume_ma20."""
-        if "bb_upper" not in df.columns:
-            df = self.populate_indicators(df)
-        close = df["close"]
-        breakout = (close.shift(1) <= df["bb_upper"].shift(1)) & (close > df["bb_upper"])
-        volume_ok = df["volume"] > df["volume_ma20"]
-        return (breakout & volume_ok).fillna(False)
+        return super().entry_signal(df)
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Exit: close drops below bb_middle."""

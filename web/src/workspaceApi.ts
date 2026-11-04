@@ -73,6 +73,7 @@ export interface PriceRule {
   adjustment: string;
 }
 export interface Review {
+  summary?: string | null;
   account_label: string;
   symbol: string | null;
   name?: string | null;
@@ -209,7 +210,7 @@ export const checkTrade = (
 ) =>
   mutate<CheckResult>("/api/discipline/check", "POST", { profile_id, intent });
 export const decisionLabel: Record<string, string> = {
-  needs_input: "资料待补充 / 更新",
+  needs_input: "有数据或计划待补充",
   review_exit: "复核卖出计划",
   observe: "继续观察",
   pass: "已实现检查通过",

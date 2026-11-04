@@ -13,6 +13,7 @@ import { openPath, scopedPath, MarketBar } from "./MarketContext";
 import { ReactNode, useState } from "react";
 
 export type SelectionSection =
+  | "backtests"
   | "home"
   | "scan"
   | "screener"
@@ -61,6 +62,12 @@ export default function SelectionShell({ currentSection, children }: Props) {
       icon: SlidersHorizontal,
     },
     { key: "watchlist", label: "我的自选", path: "/watchlist", icon: Star },
+    {
+      key: "backtests",
+      label: "策略与回测",
+      path: "/backtests",
+      icon: SlidersHorizontal,
+    },
   ];
   const sidebar = (
     <>

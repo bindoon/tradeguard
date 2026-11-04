@@ -190,7 +190,7 @@ export default function HomePage(props: SelectionNavProps) {
               根据当前持仓观察与已记录的退出计划复核。现金和资产按账户、币种查看；不合并不同币种。日线收盘触及计划不证明券商已成交。
             </p>
             <div className="mt-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-sm leading-6 text-slate-600">
-              “资料待补充 / 更新”是说系统还不知道：现在持有多少股、行情是否够新、准备何时卖出，以及止损单是否真的生效。下方逐项列出缺什么、怎么补。没有核验到挂单，不代表你一定没挂；口述计划也不等于券商已挂单。
+              先更新数据，再补交易安排：“缺少最新持仓数据”表示持仓记录已过期，需要确认当前是否仍持有、股数和成本；“缺少行情数据”表示当前来源下没有日线，“缺少近期行情数据”表示只有旧日线，需要补近期已收盘行情。这两类数据独立更新，刷新页面不会自动同步。退出计划和止损挂单核验另行列出，补齐行情不能消除这些缺口。没有核验到挂单，不代表你一定没挂。
               <p className="mt-2 text-xs text-slate-500">无接口账户可直接告诉 Agent：“哪个账户、哪只股票，截至什么时间仍持有多少股、成本多少；止损/止盈条件是什么、各卖多少、是否已挂单。”已挂单时再补类型、价格、数量和状态；尚未决定的项目保留待补充。</p>
             </div>
             {!data?.position_reviews.length ? (
@@ -227,7 +227,7 @@ export default function HomePage(props: SelectionNavProps) {
                       <span
                         className={`text-xs ${r.decision === "review_exit" ? "text-amber-700" : r.decision === "needs_input" ? "text-orange-700" : "text-slate-500"}`}
                       >
-                        {decisionLabel[r.decision]}
+                        {r.summary || decisionLabel[r.decision]}
                       </span>
                     </div>
                     {r.observed_at && (
@@ -244,7 +244,7 @@ export default function HomePage(props: SelectionNavProps) {
                       ))}
                     </ul>
                     {r.decision === "needs_input" && (
-                      <button className="mr-4 mt-3 text-xs text-cyan-700" onClick={props.onPortfolio}>去持仓查看策略与更新方式 →</button>
+                      <button className="mr-4 mt-3 text-xs text-cyan-700" onClick={props.onPortfolio}>去持仓确认当前股数、成本与退出计划 →</button>
                     )}
                     {r.symbol && (
                       <button

@@ -1,0 +1,46 @@
+{
+  "name": "合成行情的均线与箱体组合",
+  "market": "CN",
+  "currency": "CNY",
+  "source": "synthetic",
+  "adjustment": "forward",
+  "price_model": "adjusted_research",
+  "frequency": "1d",
+  "start": "2026-07-01",
+  "end": "2026-10-13",
+  "symbols": ["600000.SH"],
+  "benchmark": null,
+  "initial_cash": "100000",
+  "combination": {
+    "mode": "all",
+    "minimum": 1,
+    "signals": [
+      {"name": "ma_golden_cross", "parameters": {}, "lookback": 1},
+      {"name": "box_breakout", "parameters": {}, "lookback": 1}
+    ]
+  },
+  "portfolio_strategy": "signal_portfolio",
+  "strategy_parameters": {},
+  "max_positions": 5,
+  "max_weight": "0.2",
+  "invested_fraction": "0.95",
+  "rank_by": "hits",
+  "schedule": "daily",
+  "rebalance": false,
+  "missing_data": "error",
+  "execution": {
+    "commission": "0.0003",
+    "minimum_commission": "5",
+    "sell_tax": "0",
+    "slippage_bps": "5",
+    "lot_size": 100,
+    "settlement_days": 1,
+    "limit_pct": null,
+    "prior_volume_fraction": "0.01"
+  },
+  "exits": {
+    "stop_loss": "0.08",
+    "max_holding_days": 20,
+    "signal_exit": false
+  }
+}

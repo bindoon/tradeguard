@@ -144,14 +144,7 @@ class BoxBreakoutStrategy(BaseSignalStrategy):
         return df
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Vectorized entry: close breaks above box_top + volume confirmation."""
-        if "box_top" not in df.columns:
-            df = self.populate_indicators(df)
-        close = df["close"]
-        breakout = (close.shift(1) <= df["box_top"].shift(1)) & (close > df["box_top"])
-        volume_ok = df["volume"] > VOLUME_MULTIPLIER * df["volume_ma20"]
-        tight_box = df["box_range_pct"] < MAX_BOX_RANGE_PCT
-        return (breakout & volume_ok & tight_box).fillna(False)
+        return super().entry_signal(df)
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Exit when close falls below box midline (user-specified stop)."""

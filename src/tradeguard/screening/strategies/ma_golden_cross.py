@@ -255,16 +255,7 @@ class MaGoldenCrossStrategy(BaseSignalStrategy):
         return calculate_moving_averages(df)
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Entry: MA5 crosses above MA10 + bullish alignment (MA5>MA10>MA20>MA60)."""
-        if "ma5" not in df.columns:
-            df = self.populate_indicators(df)
-        ma5 = df["ma5"]
-        ma10 = df["ma10"]
-        ma20 = df["ma20"]
-        ma60 = df["ma60"]
-        cross = (ma5.shift(1) <= ma10.shift(1)) & (ma5 > ma10)
-        aligned = (ma5 > ma10) & (ma10 > ma20) & (ma20 > ma60)
-        return (cross & aligned).fillna(False)
+        return super().entry_signal(df)
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Exit: MA5 death-crosses below MA10."""

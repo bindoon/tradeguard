@@ -57,9 +57,22 @@ class BaseSignalStrategy:
         return df
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Return boolean Series: True on rows where entry condition is met.
-        Must override in subclasses to enable backtesting."""
-        raise NotImplementedError(f"{self.__class__.__name__} must implement entry_signal()")
+        """Causal adapter over screen(); never maintain a second entry definition.
+
+        Missing warmup/dependency evidence is pandas.NA, not a negative signal.
+        """
+        from tradeguard.backtesting.plugins import signal_at
+        from tradeguard.screening.strategies.registry import STRATEGY_REGISTRY
+
+        strategies = {**STRATEGY_REGISTRY, self.name: self}
+        values = []
+        for end in range(1, len(df) + 1):
+            frame = df.iloc[:end].tail(400).copy()
+            if "date" not in frame:
+                frame["date"] = frame.index.astype(str)
+            found = signal_at(self, frame, "", "", strategies)
+            values.append(found["hit"] if found is not None else pd.NA)
+        return pd.Series(values, index=df.index, dtype="boolean")
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Return boolean Series: True on rows where signal-based exit is triggered.

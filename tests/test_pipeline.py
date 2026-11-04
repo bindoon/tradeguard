@@ -14,9 +14,10 @@ from tradeguard.market.schemas import BarInput
 from tradeguard.pipeline import run_cn_pipeline
 from tradeguard.report import daily_report
 from tradeguard.screening.service import scan
+from tradeguard.screening.strategies.base import BaseSignalStrategy
 
 
-class Hit:
+class Hit(BaseSignalStrategy):
     def __init__(self, name: str):
         self.name = name
         self.title = name
@@ -28,7 +29,7 @@ class Hit:
         return {"metadata": {"fixture": self.name}}
 
 
-class Miss:
+class Miss(BaseSignalStrategy):
     name = "bollinger_breakout"
     title = "布林"
     description = "未命中"
@@ -206,11 +207,12 @@ def test_resonance_report_and_day_over_day_changes(database, monkeypatch):
     hit_a.only = str(later)
     hit_b.only = str(later)
 
-    def strategies(selected=None):
-        del selected
-        return [hit_a, hit_b, Miss()]
+    def strategies(selected=None, *, explicit=False):
+        del selected, explicit
+        instances = [hit_a, hit_b, Miss()]
+        return instances, {item.name: item for item in instances}
 
-    monkeypatch.setattr("tradeguard.screening.service.get_registered_strategies", strategies)
+    monkeypatch.setattr("tradeguard.backtesting.plugins.scan_plugins", strategies)
     first = scan(earlier, "synthetic", symbols=["600000.SH"])
     second = scan(later, "synthetic", symbols=["600000.SH"])
     assert first["resonance_count"] == 0

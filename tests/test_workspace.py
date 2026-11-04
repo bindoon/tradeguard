@@ -288,6 +288,70 @@ def test_position_review_keeps_missing_evidence_unknown_and_uses_recorded_exit(d
     assert any("刷新页面不会采集行情" in reason for reason in missing["reasons"])
 
 
+@pytest.mark.parametrize("future_observation", [False, True])
+def test_position_review_explains_old_or_invalid_holdings_and_market_data(
+    database, monkeypatch, future_observation
+):
+    from datetime import datetime, timezone
+
+    from test_discipline import inputs
+
+    from tradeguard.portfolio.schemas import Position
+    from tradeguard.portfolio.service import save_snapshot
+    from tradeguard.workspace.service import position_reviews
+
+    checked_at = datetime(2026, 10, 28, 6, 2, 12, tzinfo=timezone.utc)
+    observed = (
+        checked_at + timedelta(days=1)
+        if future_observation
+        else datetime(2026, 6, 26, 6, 2, 12, tzinfo=timezone.utc)
+    )
+    monkeypatch.setattr("tradeguard.workspace.service.now", lambda: checked_at)
+    _, _, snapshot = inputs()
+    snapshot.as_of = checked_at
+    snapshot.positions = [
+        Position(symbol="600000.SH", quantity="100", currency="CNY", observed_at=observed)
+    ]
+    snapshot.orders = []
+    save_snapshot(snapshot)
+    save_bars(
+        [
+            BarInput(
+                symbol="600000.SH",
+                trade_date=date(2026, 6, 25),
+                source="fixture",
+                adjustment="forward",
+                open="10",
+                close="10",
+                high="10",
+                low="10",
+                volume="1000",
+            )
+        ]
+    )
+    review = position_reviews(Scope(market="CN", source="fixture"))[0]
+    assert review["summary"] == "缺少最新持仓数据；缺少近期行情数据；退出计划待补充；止损挂单待核验"
+    assert review["decision"] == "needs_input"
+    holding_reason, price_reason = review["reasons"][:2]
+    assert "补行情不会更新持仓记录" in holding_reason
+    if future_observation:
+        assert "时间" in holding_reason and "异常" in holding_reason
+        assert "已过去" not in holding_reason
+    else:
+        assert "2026-06-26 14:02:12（北京时间）" in holding_reason
+        assert "124 天" in holding_reason
+    assert "2026-06-25" in price_reason and "前复权" in price_reason
+    # Other-source/adjustment observations cannot be described as this series' old data.
+    for scope in [
+        Scope(market="CN", source="missing"),
+        Scope(market="CN", source="fixture", adjustment="none"),
+    ]:
+        missing = position_reviews(scope)[0]
+        assert "缺少行情数据" in missing["summary"]
+        assert "没有已保存日线" in missing["reasons"][1]
+        assert "2026-06-25" not in missing["reasons"][1]
+
+
 def test_workspace_cli_and_migration_round_trip(database, tmp_path):
     import json
 

@@ -1,0 +1,41 @@
+{
+  "name": "合成行情的月度价格动量轮动",
+  "market": "CN",
+  "currency": "CNY",
+  "source": "synthetic",
+  "adjustment": "forward",
+  "price_model": "adjusted_research",
+  "frequency": "1d",
+  "start": "2026-07-01",
+  "end": "2026-10-13",
+  "symbols": [
+    "600000.SH"
+  ],
+  "benchmark": null,
+  "initial_cash": "100000",
+  "combination": null,
+  "portfolio_strategy": "relative_momentum",
+  "strategy_parameters": {
+    "lookback": 20,
+    "skip": 0,
+    "top_n": 1
+  },
+  "max_positions": 1,
+  "max_weight": "1",
+  "invested_fraction": "0.95",
+  "rank_by": "hits",
+  "schedule": "monthly",
+  "rebalance": false,
+  "missing_data": "error",
+  "execution": {
+    "commission": "0.0003",
+    "minimum_commission": "5",
+    "sell_tax": "0",
+    "slippage_bps": "5",
+    "lot_size": 100,
+    "settlement_days": 1,
+    "limit_pct": null,
+    "prior_volume_fraction": "0.01"
+  },
+  "exits": {}
+}

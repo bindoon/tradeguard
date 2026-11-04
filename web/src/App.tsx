@@ -9,9 +9,11 @@ import ScanResultsPage from "./ScanResultsPage";
 import ScreenerPage from "./ScreenerPage";
 import StockDetailPage from "./StockDetailPage";
 import PortfolioPage from "./PortfolioPage";
+import BacktestsPage from "./BacktestsPage";
 import "./index.css";
 
 type View =
+  | { type: "backtests"; id?: string }
   | { type: "home" }
   | { type: "watchlist" }
   | { type: "alerts" }
@@ -23,6 +25,8 @@ type View =
 
 function parsePath(pathname: string): View {
   const cleanPath = pathname.replace(/\/+$/, "") || "/";
+  const backtest = cleanPath.match(/^\/backtests(?:\/([^/]+))?$/);
+  if (backtest) return { type: "backtests", id: backtest[1] };
   if (cleanPath === "/watchlist") return { type: "watchlist" };
   if (cleanPath === "/alerts") return { type: "alerts" };
   if (cleanPath === "/") return { type: "home" };
@@ -48,6 +52,8 @@ function parsePath(pathname: string): View {
 
 function viewToPath(view: View): string {
   switch (view.type) {
+    case "backtests":
+      return view.id ? `/backtests/${view.id}` : "/backtests";
     case "watchlist":
       return "/watchlist";
     case "alerts":
@@ -111,6 +117,7 @@ function App() {
     navigate(fallbackView, true);
   }
 
+  if (view.type === "backtests") return <BacktestsPage id={view.id} />;
   if (view.type === "watchlist") return <WatchlistPage {...navProps} />;
   if (view.type === "alerts") return <AlertsPage {...navProps} />;
 

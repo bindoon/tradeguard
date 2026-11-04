@@ -105,15 +105,7 @@ class MacdGoldenCrossStrategy(BaseSignalStrategy):
         return df
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Entry: MACD crosses above signal + MACD > 0 + close > MA20."""
-        if "macd" not in df.columns:
-            df = self.populate_indicators(df)
-        macd = df["macd"]
-        signal = df["macd_signal"]
-        cross = (macd.shift(1) <= signal.shift(1)) & (macd > signal)
-        above_zero = macd > 0
-        above_ma20 = df["close"] > df["ma20"]
-        return (cross & above_zero & above_ma20).fillna(False)
+        return super().entry_signal(df)
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Exit: MACD death-crosses below signal."""

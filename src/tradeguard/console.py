@@ -336,6 +336,9 @@ class CheckInput(BaseModel):
 
 def create_app():
     app = FastAPI(title="TradeGuard local console")
+    from tradeguard.backtesting.api import router as backtest_router
+
+    app.include_router(backtest_router)
 
     @app.middleware("http")
     async def same_origin(request: Request, call_next):

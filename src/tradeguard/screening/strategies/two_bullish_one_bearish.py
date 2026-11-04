@@ -229,12 +229,7 @@ class TwoBullishOneBearishStrategy(BaseSignalStrategy):
         return calculate_moving_averages(df)
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Entry: standalone two-bullish-one-bearish candle pattern (no MA dependency).
-        Pattern: day-2 bullish, day-1 bearish, day-0 bullish."""
-        bullish = df["close"] > df["open"]
-        bearish = df["close"] < df["open"]
-        pattern = bullish.shift(2).fillna(False) & bearish.shift(1).fillna(False) & bullish
-        return pattern.fillna(False)
+        return super().entry_signal(df)
 
     # exit_signal inherits default (all False) – rely on stoploss/take_profit/max_holding_days
 

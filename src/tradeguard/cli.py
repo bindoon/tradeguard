@@ -23,6 +23,7 @@ pipeline = typer.Typer(no_args_is_help=True)
 report = typer.Typer(no_args_is_help=True)
 workspace_app = typer.Typer(no_args_is_help=True)
 public_app = typer.Typer(no_args_is_help=True)
+backtest_app = typer.Typer(no_args_is_help=True)
 for name, sub in [
     ("market", market),
     ("scan", scan_app),
@@ -33,6 +34,7 @@ for name, sub in [
     ("report", report),
     ("workspace", workspace_app),
     ("public", public_app),
+    ("backtest", backtest_app),
 ]:
     app.add_typer(sub, name=name)
 
@@ -81,6 +83,76 @@ def load(path: Path) -> Any:
 
 def day(value: str) -> date:
     return date.fromisoformat(value)
+
+
+@backtest_app.command("schema")
+def backtest_schema():
+    """Describe explicit portfolio, execution and data requirements."""
+    from tradeguard.backtesting.schemas import BacktestConfig
+
+    output(lambda: BacktestConfig.model_json_schema())
+
+
+@backtest_app.command("run")
+def backtest_run(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.backtesting.schemas import BacktestConfig
+    from tradeguard.backtesting.service import run
+
+    output(lambda: run(BacktestConfig.model_validate(load(file))))
+
+
+@backtest_app.command("preflight")
+def backtest_preflight(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.backtesting.schemas import BacktestConfig
+    from tradeguard.backtesting.service import preflight
+
+    output(lambda: preflight(BacktestConfig.model_validate(load(file))))
+
+
+@backtest_app.command("report")
+def backtest_report(run: Annotated[str, typer.Option()]):
+    from tradeguard.backtesting.service import get
+
+    output(lambda: get(run))
+
+
+@backtest_app.command("list")
+def backtest_list(
+    market: Annotated[str, typer.Option()],
+    source: Annotated[str, typer.Option()],
+    adjustment: Annotated[str, typer.Option()],
+):
+    from tradeguard.backtesting.service import history
+
+    output(lambda: {"experiments": history(market.upper(), source, adjustment)})
+
+
+@backtest_app.command("replay")
+def backtest_replay(run: Annotated[str, typer.Option()]):
+    from tradeguard.backtesting.service import replay
+
+    output(lambda: replay(run))
+
+
+@backtest_app.command("plugins")
+def backtest_plugins():
+    from tradeguard.backtesting.plugins import catalog
+
+    output(lambda: {"plugins": catalog()})
+
+
+@backtest_app.command("enable")
+def backtest_enable(name: str):
+    from tradeguard.backtesting.plugins import set_enabled
+
+    output(lambda: set_enabled(name, True))
+
+
+@backtest_app.command("disable")
+def backtest_disable(name: str):
+    from tradeguard.backtesting.plugins import set_enabled
+
+    output(lambda: set_enabled(name, False))
 
 
 @app.command()
@@ -171,6 +243,7 @@ def scan_run(
     min_resonance: int = 1,
     symbol: Annotated[list[str] | None, typer.Option()] = None,
     market: str = "CN",
+    strategy: Annotated[list[str] | None, typer.Option()] = None,
 ):
     from tradeguard.market.schemas import normalize_symbol
     from tradeguard.screening.service import scan
@@ -183,6 +256,7 @@ def scan_run(
             [normalize_symbol(s) for s in symbol] if symbol else None,
             min_resonance,
             market=market.upper(),
+            strategy_names=strategy,
         )
     )
 

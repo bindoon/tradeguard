@@ -45,6 +45,8 @@ export default function WorkspaceChrome() {
     fixed.push({ label: "股票筛选器", path: "/screener" });
   if (location.pathname === "/alerts")
     fixed.push({ label: "提醒记录", path: "/alerts" });
+  if (location.pathname.startsWith("/backtests"))
+    fixed.push({ label: "策略与回测", path: "/backtests" });
   function persist(next: StockTab[]) {
     setTabs(next);
     try {
@@ -202,11 +204,13 @@ export default function WorkspaceChrome() {
         >
           {fixed.map((tab) => {
             const selected =
-              tab.path === "/scan"
-                ? location.pathname.startsWith("/scan")
-                : location.pathname === tab.path ||
-                  (tab.path === "/portfolio" &&
-                    location.pathname === "/monitor");
+              tab.path === "/backtests"
+                ? location.pathname.startsWith("/backtests")
+                : tab.path === "/scan"
+                  ? location.pathname.startsWith("/scan")
+                  : location.pathname === tab.path ||
+                    (tab.path === "/portfolio" &&
+                      location.pathname === "/monitor");
             return (
               <div
                 className="tg-workspace-tab"

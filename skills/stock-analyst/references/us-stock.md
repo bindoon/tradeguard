@@ -126,12 +126,13 @@ longbridge investors <CIK>                            # 某机构持仓明细
 `pip install yfinance`。期权链、做空比例等 longbridge 缺项时用；**不要作为默认取数方式**。
 ```python
 import yfinance as yf
+
 t = yf.Ticker("NVDA")
-t.info                 # 估值倍数、市值、利润率
+t.info  # 估值倍数、市值、利润率
 t.financials / t.balance_sheet / t.cashflow
-t.recommendations      # 分析师评级
+t.recommendations  # 分析师评级
 t.institutional_holders
-t.option_chain(date)   # 期权链（算 P/C）
+t.option_chain(date)  # 期权链（算 P/C）
 ```
 
 ### 兜底：FMP / Alpha Vantage / Finnhub（API key）

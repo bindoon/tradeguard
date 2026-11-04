@@ -101,14 +101,7 @@ class RsiReboundStrategy(BaseSignalStrategy):
         return df
 
     def entry_signal(self, df: pd.DataFrame) -> pd.Series:
-        """Entry: RSI crosses above 30 + bullish candle + volume > volume_ma20."""
-        if "rsi" not in df.columns:
-            df = self.populate_indicators(df)
-        rsi = df["rsi"]
-        cross_30 = (rsi.shift(1) <= 30) & (rsi > 30)
-        bullish = df["close"] > df["open"]
-        volume_ok = df["volume"] > df["volume_ma20"]
-        return (cross_30 & bullish & volume_ok).fillna(False)
+        return super().entry_signal(df)
 
     def exit_signal(self, df: pd.DataFrame) -> pd.Series:
         """Exit: RSI crosses above 70 (overbought)."""

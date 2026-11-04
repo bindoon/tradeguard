@@ -183,6 +183,25 @@ class RunEvent(Base):
     total: Mapped[int | None]
 
 
+class StrategyPluginState(Base):
+    """Installation is Python-owned; enablement only affects new experiments."""
+
+    __tablename__ = "strategy_plugin_state"
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
+class BacktestArtifact(Base):
+    """Append-only input slices and report, owned by one simulated experiment."""
+
+    __tablename__ = "backtest_artifact"
+    run_id: Mapped[str] = mapped_column(ForeignKey("job_run.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
 class WatchItem(Base):
     __tablename__ = "watch_item"
     __table_args__ = (UniqueConstraint("symbol", "source", "adjustment", name="uq_watch_scope"),)
