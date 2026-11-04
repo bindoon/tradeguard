@@ -151,6 +151,9 @@ export type Manifest = {
   warmup: { symbol: string; observed: number; required: number }[];
 };
 export type Experiment = {
+  experiment_type?: "single" | "comparison" | "allocation";
+  study_config?: StudyConfig;
+  study_report?: StudyReportData | null;
   id: string;
   name: string;
   status: string;
@@ -158,7 +161,7 @@ export type Experiment = {
   created_at: string;
   config: Config;
   manifest: Manifest;
-  plugins: Plugin[];
+  plugins: Plugin[] | Record<string, Plugin[]>;
   engine_version: string;
   replay_of: string | null;
   error?: string;
@@ -181,8 +184,70 @@ export type Experiment = {
 };
 export type ExperimentRow = Pick<
   Experiment,
-  "id" | "name" | "status" | "created_at" | "config" | "error"
+  | "id"
+  | "name"
+  | "status"
+  | "created_at"
+  | "config"
+  | "error"
+  | "experiment_type"
 > & { metrics: Metrics | null };
+
+export type StudyCase = { key: string; weight: string; config: Config };
+export type StudyConfig = {
+  name: string;
+  mode: "comparison" | "allocation";
+  cases: StudyCase[];
+};
+export type StudyCaseReport = StudyCase & {
+  initial_cash: string;
+  plugins: Plugin[];
+  report: NonNullable<Experiment["report"]>;
+};
+export type StudyReportData = {
+  mode: "comparison" | "allocation";
+  input_hash: string;
+  result_hash: string;
+  reserved_cash: string;
+  cases: StudyCaseReport[];
+  portfolio: Experiment["report"];
+  correlations: {
+    left: string;
+    right: string;
+    observations: number;
+    value: number | null;
+  }[];
+  attribution: {
+    key: string;
+    name: string;
+    initial_cash: string;
+    profit: string;
+    return_contribution: string;
+    final_weight: string | null;
+  }[];
+};
+
+export const commonFields = [
+  "market",
+  "currency",
+  "source",
+  "adjustment",
+  "price_model",
+  "frequency",
+  "start",
+  "end",
+  "symbols",
+  "benchmark",
+  "initial_cash",
+  "missing_data",
+  "execution",
+] as const;
+export function withCommon(config: Config, base: Config): Config {
+  const common = Object.fromEntries(
+    commonFields.map((key) => [key, base[key]]),
+  );
+  return structuredClone({ ...config, ...common });
+}
 
 const base = (import.meta.env.VITE_API_URL as string) || "";
 export async function mutate<T>(

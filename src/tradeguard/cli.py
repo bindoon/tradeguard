@@ -116,6 +116,27 @@ def backtest_report(run: Annotated[str, typer.Option()]):
     output(lambda: get(run))
 
 
+@backtest_app.command("study-schema")
+def backtest_study_schema():
+    from tradeguard.backtesting.studies import StudyConfig
+
+    output(lambda: StudyConfig.model_json_schema())
+
+
+@backtest_app.command("study-preflight")
+def backtest_study_preflight(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.backtesting.studies import StudyConfig, preflight
+
+    output(lambda: preflight(StudyConfig.model_validate(load(file))))
+
+
+@backtest_app.command("study-run")
+def backtest_study_run(file: Annotated[Path, typer.Option(exists=True, dir_okay=False)]):
+    from tradeguard.backtesting.studies import StudyConfig, run
+
+    output(lambda: run(StudyConfig.model_validate(load(file))))
+
+
 @backtest_app.command("list")
 def backtest_list(
     market: Annotated[str, typer.Option()],

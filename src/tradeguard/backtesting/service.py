@@ -73,7 +73,7 @@ def _run_row(db, identifier: str, market=None, source=None, adjustment=None):
     row = db.get(Run, identifier)
     if (
         row is None
-        or row.kind != "backtest"
+        or row.kind not in {"backtest", "backtest_study"}
         or (market is not None and row.market != market)
         or (source is not None and row.details["source"] != source)
         or (adjustment is not None and row.details["adjustment"] != adjustment)
@@ -184,7 +184,8 @@ def get(identifier: str, market=None, source=None, adjustment=None) -> dict:
             "created_at": row.started_at.isoformat(),
             "finished_at": row.finished_at.isoformat() if row.finished_at else None,
             **row.details,
-            "report": artifact.payload if artifact else None,
+            "report": artifact.payload if artifact and row.kind == "backtest" else None,
+            "study_report": artifact.payload if artifact and row.kind == "backtest_study" else None,
             "events": [
                 {
                     "stage": item.stage,
@@ -201,7 +202,9 @@ def history(market: str, source: str | None = None, adjustment: str | None = Non
     from tradeguard.db.maintenance import retire_stale_runs
 
     retire_stale_runs()
-    query = select(Run.id, Run.started_at).where(Run.kind == "backtest", Run.market == market)
+    query = select(Run.id, Run.started_at).where(
+        Run.kind.in_(["backtest", "backtest_study"]), Run.market == market
+    )
     if source is not None:
         query = query.where(Run.details["source"].as_string() == source)
     if adjustment is not None:
@@ -223,6 +226,7 @@ def history(market: str, source: str | None = None, adjustment: str | None = Non
             "created_at": rows[key].started_at.isoformat(),
             "name": rows[key].details["name"],
             "config": rows[key].details["config"],
+            "experiment_type": rows[key].details.get("experiment_type", "single"),
             "metrics": rows[key].details.get("metrics"),
             "error": rows[key].details.get("error"),
         }
@@ -233,6 +237,10 @@ def history(market: str, source: str | None = None, adjustment: str | None = Non
 def replay(identifier: str) -> dict:
     with session() as db:
         original = _run_row(db, identifier)
+        if original.kind == "backtest_study":
+            from tradeguard.backtesting import studies
+
+            return studies.replay(identifier)
         if original.status != "success":
             raise ValueError("只能重放已成功的实验")
         if original.details["engine_version"] != engine_version():

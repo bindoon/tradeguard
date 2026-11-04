@@ -4,7 +4,7 @@ from threading import BoundedSemaphore
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from tradeguard.backtesting import plugins, service
+from tradeguard.backtesting import plugins, service, studies
 from tradeguard.backtesting.schemas import BacktestConfig
 
 router = APIRouter(prefix="/api/backtests", tags=["backtests"])
@@ -32,9 +32,9 @@ def preflight(payload: BacktestConfig):
     return service.preflight(payload)
 
 
-def worker(identifier):
+def worker(identifier, study=False):
     try:
-        service.execute(identifier)
+        (studies.execute if study else service.execute)(identifier)
     except Exception:
         # The service durably records a sanitized error. Never echo provider/DB secrets.
         pass
@@ -60,6 +60,24 @@ def history(market: str, adjustment: str, source: str = ""):
     if market not in {"CN", "US", "HK"} or adjustment not in {"none", "forward", "backward"}:
         raise HTTPException(422, "请选择有效市场及复权")
     return service.history(market, source, adjustment)
+
+
+@router.post("/studies/preflight")
+def study_preflight(payload: studies.StudyConfig):
+    return studies.preflight(payload)
+
+
+@router.post("/studies", status_code=202)
+def study_launch(payload: studies.StudyConfig):
+    if not slots.acquire(blocking=False):
+        raise HTTPException(429, "已有回测运行或排队，请稍后重试")
+    try:
+        identifier = studies.create(payload)
+        executor.submit(worker, identifier, True)
+    except Exception:
+        slots.release()
+        raise
+    return {"id": identifier, "status": "queued"}
 
 
 @router.get("/{identifier}")

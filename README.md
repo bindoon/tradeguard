@@ -101,6 +101,15 @@ uv run tradeguard serve
 
 信号组合插件需设置 `combination`；三个自行选股的交易策略必须用 `combination: null`，避免混淆实际条件。交易插件的动量排名或 ATR 决策记录在订单依据中，学习说明和参数定义随报告归档。`examples/backtest-rotation.json` 展示独立轮动配置；其行情仍来自合成样例。
 
+“用此信号回测”会定位到配置区、仅选中该信号，并清除上一交易策略的专属参数；填写股票池与日期、检查数据后才启动。可继续勾选其他信号，用全部/任一/至少 N 个条件组成一套规则。单策略实验内多只股票共享资金；配置区会实时说明当前模式。
+
+“加入对比 / 组合”把当前表单存为研究方案，最多 8 套。第一个方案确定共同股票池、日期、来源、复权、基准、资金及成交假设；后续方案自动沿用，可在表单中“更新共同设置”。各方案可载入编辑或移除，策略参数、仓位、调仓与退出各自独立。
+
+- **策略对比**：每套方案使用相同初始资金，独立模拟，共用一次冻结的行情；查看归一化净值、收益、回撤、费用、成交和完整子报告。
+- **资金组合**：总资金按初始比例拆为独立子账本，合计最多 100%，余额持现金。按实际子账本权益求和，保留最低佣金、整手取整与费用影响；展示实际盈亏、收益贡献及期末资金比例。不自动跨策略调拨或恢复比例，同股订单不净额撮合；成交量额度按初始比例分摊，各策略的仓位限制独立生效。
+
+勾选共同设置确认后，可“检查全部方案”再运行；完成后报告、版本与共享行情入库，历史列表区分单策略/对比/资金组合。任一方案失败时不发布成功汇总。日收益相关性不足 20 个共同观察或收益无波动时保持未知。草稿仅保留在当前页面，切换市场/来源/复权会清空；完成报告可重载、导出与离线重放。
+
 ```bash
 uv run alembic upgrade head
 pnpm --dir web build
@@ -114,7 +123,12 @@ uv run tradeguard backtest replay --run RUN_ID
 uv run tradeguard backtest disable box_breakout
 uv run tradeguard backtest enable box_breakout
 uv run tradeguard backtest compare-box --source legacy_mysql --start 2026-01-01 --end 2026-06-25
+uv run tradeguard backtest study-schema
+uv run tradeguard backtest study-preflight --file private/study.json
+uv run tradeguard backtest study-run --file private/study.json
 ```
+
+[examples/backtest-study.json](examples/backtest-study.json) 是合成行情的两策略分账示例，`mode` 可选 `comparison` / `allocation`。每个方案显式保存完整配置，共同设置不一致时服务拒绝执行；`report/list/replay` 同样支持这两类研究任务。
 
 将 [examples/backtest.json](examples/backtest.json) 复制到 `private/backtest.json` 后，按实际缓存填写日期、来源、股票池和执行参数。该文件只适用于 `market import --file examples/bars.csv` 的合成样例，不是个人交易规则。`box_high_breakout` 可加入 `combination.signals`，参数 `box_period`、`max_box_range_pct`、`min_breakout_pct`、`vol_mult` 有默认值；与 `box_breakout` 同时入选时，组合票数按一个箱体家族计算。`backtest compare-box` 只读 `daily_bar`，按策略汇总 5/10/20 根前向收益、20 根最大有利/不利偏移和 3 根内跌回 `box_top` 的比例。`--source` 换成自己的行情来源，日期必须是已入库区间。支持 `all/any/at_least` 组合、最近 N 日信号、日/周/月调仓，以及显式止损/止盈/跟踪退出/持有期限。已安装 Python 包可通过 entry points 新增信号和交易策略；`scan run --strategy NAME` 也可选择信号插件。
 

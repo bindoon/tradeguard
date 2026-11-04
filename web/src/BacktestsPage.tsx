@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { Play, RefreshCw, Settings2, Plus, Download } from "lucide-react";
 import SelectionShell from "./SelectionShell";
 import { StrategyLearning, StrategyParameters } from "./StrategyLearning";
+import { StudyReport, StudyWorkbench, useStudyDraft } from "./StudyWorkbench";
 import { openPath, scopedPath, useMarket } from "./MarketContext";
 import {
   Config,
@@ -168,17 +169,27 @@ function ExperimentForm({
   plugins,
   onStarted,
   choice,
+  preset,
+  editingStudy,
+  onStudyAction,
 }: {
   plugins: Plugin[];
   onStarted: (id: string) => void;
   choice: { plugin: Plugin; sequence: number } | null;
+  preset: { config: Config; sequence: number } | null;
+  editingStudy: boolean;
+  onStudyAction: (config: Config, action: "case" | "common") => void;
 }) {
   const { market, source, adjustment, info } = useMarket();
-  const end = info?.max_date || new Date().toISOString().slice(0, 10);
-  const first = new Date(end + "T00:00:00Z");
-  first.setUTCFullYear(first.getUTCFullYear() - 1);
+  const end =
+    info?.sources.find(
+      (s) => s.source === source && s.adjustment === adjustment,
+    )?.max_date || "";
+  const first = end ? new Date(end + "T00:00:00Z") : null;
+  first?.setUTCFullYear(first.getUTCFullYear() - 1);
+  const defaultStart = first?.toISOString().slice(0, 10) || "";
   const [name, setName] = useState("组合回测");
-  const [start, setStart] = useState(first.toISOString().slice(0, 10));
+  const [start, setStart] = useState(defaultStart);
   const [finish, setFinish] = useState(end);
   const [symbols, setSymbols] = useState("");
   const [benchmark, setBenchmark] = useState("");
@@ -216,16 +227,25 @@ function ExperimentForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preflight, setPreflight] = useState<Manifest | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   const portfolioInfo = plugins.find((p) => p.name === portfolio);
   const usesSignals = portfolioInfo?.uses_signals !== false;
+  useEffect(() => {
+    if (!end) return;
+    setStart((value) => value || defaultStart);
+    setFinish((value) => value || end);
+  }, [defaultStart, end]);
   useEffect(() => {
     if (!choice) return;
     const p = choice.plugin;
     setName("学习回测 · " + p.title);
     setPreflight(null);
+    setError("");
     if (p.kind === "signal") {
       setPortfolio("signal_portfolio");
+      setParameterText("{}");
       setSelected([p.name]);
       setMode("all");
       setSignalParameters((v) => ({
@@ -240,6 +260,60 @@ function ExperimentForm({
       if (p.name === "turtle_daily") setSchedule("daily");
     }
   }, [choice]);
+  useEffect(() => {
+    if (!preset) return;
+    const c = preset.config;
+    setName(c.name);
+    setStart(c.start);
+    setFinish(c.end);
+    setSymbols(c.symbols.join(", "));
+    setBenchmark(c.benchmark || "");
+    setSelected(c.combination?.signals.map((s) => s.name) || []);
+    setMode(c.combination?.mode || "all");
+    setMinimum(c.combination?.minimum || 1);
+    setLookbacks(
+      Object.fromEntries(
+        (c.combination?.signals || []).map((s) => [s.name, s.lookback]),
+      ),
+    );
+    setSignalParameters(
+      Object.fromEntries(
+        (c.combination?.signals || []).map((s) => [
+          s.name,
+          JSON.stringify(s.parameters),
+        ]),
+      ),
+    );
+    setPortfolio(c.portfolio_strategy);
+    setParameterText(JSON.stringify(c.strategy_parameters));
+    setCash(c.initial_cash);
+    setMaxPositions(c.max_positions);
+    setWeight(c.max_weight);
+    setFraction(c.invested_fraction);
+    setRank(c.rank_by);
+    setSchedule(c.schedule);
+    setRebalance(c.rebalance);
+    setMissing(c.missing_data);
+    setCommission(c.execution.commission);
+    setMinCommission(c.execution.minimum_commission);
+    setTax(c.execution.sell_tax);
+    setSlippage(c.execution.slippage_bps);
+    setLot(c.execution.lot_size);
+    setSettlement(c.execution.settlement_days);
+    setVolume(c.execution.prior_volume_fraction);
+    setLimit(c.execution.limit_pct || "");
+    setStop(c.exits.stop_loss || "");
+    setProfit(c.exits.take_profit || "");
+    setTrailing(c.exits.trailing_stop || "");
+    setDays(c.exits.max_holding_days?.toString() || "");
+    setSignalExit(c.exits.signal_exit);
+    setPreflight(null);
+    setError("");
+  }, [preset]);
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ block: "start" });
+    nameRef.current?.focus({ preventScroll: true });
+  }, [choice, preset]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -303,6 +377,16 @@ function ExperimentForm({
       },
     };
   }
+  function saveStudy(action: "case" | "common") {
+    setError("");
+    try {
+      if (!name.trim() || !symbols.trim() || !start || !finish)
+        throw new Error("请先填写实验名称、股票池与起止日期");
+      onStudyAction(build(), action);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "配置无法解析");
+    }
+  }
   async function submit(e: FormEvent, checkOnly = false) {
     e.preventDefault();
     setError("");
@@ -346,18 +430,68 @@ function ExperimentForm({
   );
   return (
     <form
+      ref={formRef}
       className={panel + " space-y-5"}
       onSubmit={submit}
       onChange={() => setPreflight(null)}
       aria-label="新建回测实验"
     >
       <h2 className="text-base font-semibold">新建实验</h2>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={button}
+          disabled={busy}
+          onClick={() => saveStudy("case")}
+        >
+          {editingStudy ? "替换正在编辑的方案" : "加入对比 / 组合"}
+        </button>
+        <button
+          type="button"
+          className={button}
+          disabled={busy}
+          onClick={() => saveStudy("common")}
+        >
+          更新共同设置
+        </button>
+      </div>
       <p className="text-xs text-slate-500">
         {market} · {source || "未选择来源"} · {adjustment} · 日线 ·{" "}
         {market === "CN" ? "CNY" : market === "US" ? "USD" : "HKD"}
       </p>
+      <div
+        role="note"
+        aria-label="当前回测方式"
+        aria-live="polite"
+        className="rounded-lg bg-blue-50 p-3 text-xs leading-6 text-blue-900"
+      >
+        <p className="font-semibold">
+          {usesSignals
+            ? selected.length === 1
+              ? "单信号策略回测"
+              : `多信号组合回测 · ${selected.length} 个信号 · ${
+                  mode === "all"
+                    ? "全部命中"
+                    : mode === "any"
+                      ? "任一命中"
+                      : `至少 ${minimum} 个命中`
+                }`
+            : `独立交易策略回测 · ${portfolioInfo?.title || portfolio}`}
+        </p>
+        <p>
+          {usesSignals
+            ? "所选信号组成一套交易规则，共用资金、仓位与退出设置。"
+            : "此策略自行决定选股与调仓，股票池内的多只股票共用资金。"}
+          此表单配置一套交易规则。可直接单独运行，或加入“策略对比 / 资金组合”。
+        </p>
+        <p>
+          {choice ? "策略配置已载入，尚未运行。" : "尚未运行。"}
+          请填写股票池、确认日期与成交参数，再点击“检查数据”和“开始回测”。
+        </p>
+      </div>
       <Field title="实验名称">
         <input
+          ref={nameRef}
           className={input}
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -441,7 +575,10 @@ function ExperimentForm({
                     )}
                   </label>
                   {selected.includes(p.name) && (
-                    <details className="mt-2 text-xs text-slate-500">
+                    <details
+                      open={!!preset}
+                      className="mt-2 text-xs text-slate-500"
+                    >
                       <summary className="cursor-pointer">
                         参数与时序窗口
                       </summary>
@@ -486,6 +623,7 @@ function ExperimentForm({
           <div className="grid grid-cols-2 gap-3">
             <Field title="组合条件">
               <select
+                aria-label="组合条件"
                 className={input}
                 value={mode}
                 onChange={(e) => setMode(e.target.value)}
@@ -750,6 +888,9 @@ function Report({ experiment }: { experiment: Experiment }) {
   const [page, setPage] = useState(0);
   const [holdDate, setHoldDate] = useState("");
   const report = experiment.report;
+  const plugins = Array.isArray(experiment.plugins)
+    ? experiment.plugins
+    : Object.values(experiment.plugins).flat();
   if (!report)
     return (
       <section className={panel}>
@@ -978,7 +1119,7 @@ function Report({ experiment }: { experiment: Experiment }) {
                       Object.entries(o.signal_evidence || {})
                         .map(
                           ([name, evidence]) =>
-                            `${experiment.plugins.find((p) => p.name === name)?.title || name}：${evidence.hit == null ? "未知" : evidence.hit ? "命中" : "未命中"}（${evidence.lookback} 日）`,
+                            `${plugins.find((p) => p.name === name)?.title || name}：${evidence.hit == null ? "未知" : evidence.hit ? "命中" : "未命中"}（${evidence.lookback} 日）`,
                         )
                         .join("；") ||
                         reasonLabel[o.decision_evidence?.summary || ""] ||
@@ -1095,13 +1236,13 @@ function Report({ experiment }: { experiment: Experiment }) {
             </p>
             <p>
               插件：
-              {experiment.plugins
+              {plugins
                 .map((p) => `${p.name}@${p.version} (${p.hash.slice(0, 12)})`)
                 .join("，")}
             </p>
             <details open>
               <summary>策略学习说明（随实验归档）</summary>
-              {experiment.plugins.map((plugin) => (
+              {plugins.map((plugin) => (
                 <div
                   className="my-3 rounded-lg border border-slate-200 p-3"
                   key={plugin.name}
@@ -1164,6 +1305,20 @@ export default function BacktestsPage({ id }: { id?: string }) {
   const [refresh, setRefresh] = useState(0);
   const [toggling, setToggling] = useState("");
   const scopeKey = `${market}:${source}:${adjustment}`;
+  const study = useStudyDraft(scopeKey);
+  const reportRegion = useRef<HTMLDivElement>(null);
+  const [preset, setPreset] = useState<{
+    config: Config;
+    sequence: number;
+  } | null>(null);
+  useEffect(() => {
+    setPreset(null);
+    setChoice(null);
+  }, [scopeKey]);
+  useEffect(() => {
+    if (id && experiment?.id === id)
+      reportRegion.current?.scrollIntoView({ block: "start" });
+  }, [id, experiment?.id, scopeKey]);
   useEffect(() => {
     let cancelled = false;
     setRows([]);
@@ -1206,7 +1361,10 @@ export default function BacktestsPage({ id }: { id?: string }) {
                 ? {
                     ...row,
                     status: data.status,
-                    metrics: data.report?.metrics || null,
+                    metrics:
+                      data.study_report?.portfolio?.metrics ||
+                      data.report?.metrics ||
+                      null,
                   }
                 : row,
             ),
@@ -1259,6 +1417,9 @@ export default function BacktestsPage({ id }: { id?: string }) {
           <button className={button} onClick={() => setManagerOpen((v) => !v)}>
             <Settings2 size={15} />
             策略管理
+          </button>
+          <button className={button} onClick={() => study.setOpen((v) => !v)}>
+            策略对比 / 资金组合
           </button>
           <button className={button} onClick={() => setNewOpen((v) => !v)}>
             <Plus size={15} />
@@ -1314,6 +1475,9 @@ export default function BacktestsPage({ id }: { id?: string }) {
               描述真实波幅；按 ATR
               估算的计划风险仍受跳空和成交影响。已知未命中与证据未知会分别处理。
             </p>
+            <p>
+              多信号组合把若干条件组成一套规则；策略对比让多套完整规则各用相同初始资金分别运行；资金组合把总资金分给各套规则，按实际子账本汇总净值。股票池内包含多只股票，与使用几套规则是两个独立设置。
+            </p>
           </details>
           <div className="grid items-start gap-3 md:grid-cols-2">
             {plugins
@@ -1355,6 +1519,8 @@ export default function BacktestsPage({ id }: { id?: string }) {
                     className={button + " mt-4"}
                     onClick={() => {
                       setChoice({ plugin: p, sequence: Date.now() });
+                      setPreset(null);
+                      study.setEditing(null);
                       setNewOpen(true);
                     }}
                   >
@@ -1365,6 +1531,22 @@ export default function BacktestsPage({ id }: { id?: string }) {
           </div>
         </section>
       )}
+      <StudyWorkbench
+        draft={study}
+        plugins={plugins}
+        onEdit={(config, key) => {
+          study.setEditing(key);
+          setPreset({ config, sequence: Date.now() });
+          setNewOpen(true);
+        }}
+        onStarted={(newId) => {
+          study.setOpen(false);
+          setNewOpen(false);
+          setManagerOpen(false);
+          setRefresh((v) => v + 1);
+          openPath(scopedPath(`/backtests/${newId}`));
+        }}
+      />
       <section className={panel}>
         <h2 className="mb-3 font-semibold">
           实验记录 · {market} / {source || "无来源"} / {adjustment}
@@ -1412,6 +1594,13 @@ export default function BacktestsPage({ id }: { id?: string }) {
                       >
                         {row.name}
                       </button>
+                      <p className="mt-1 text-slate-500">
+                        {row.experiment_type === "comparison"
+                          ? "策略对比"
+                          : row.experiment_type === "allocation"
+                            ? "资金组合"
+                            : "单策略回测"}
+                      </p>
                     </td>
                     <td className="px-3 py-3">
                       {row.config.start} — {row.config.end} /{" "}
@@ -1445,15 +1634,39 @@ export default function BacktestsPage({ id }: { id?: string }) {
             key={scopeKey}
             plugins={plugins}
             choice={choice}
+            preset={preset}
+            editingStudy={!!study.editing}
+            onStudyAction={study.apply}
             onStarted={(newId) => {
               setRefresh((v) => v + 1);
               openPath(scopedPath(`/backtests/${newId}`));
             }}
           />
         )}
-        <div className="min-w-0">
+        <div ref={reportRegion} className="min-w-0">
           {experiment ? (
-            <Report key={experiment.id} experiment={experiment} />
+            experiment.experiment_type &&
+            experiment.experiment_type !== "single" ? (
+              <StudyReport
+                key={experiment.id}
+                experiment={experiment}
+                renderCase={(c) => (
+                  <Report
+                    key={c.key}
+                    experiment={{
+                      ...experiment,
+                      name: c.config.name,
+                      config: c.config,
+                      plugins: c.plugins,
+                      report: c.report,
+                      study_report: null,
+                    }}
+                  />
+                )}
+              />
+            ) : (
+              <Report key={experiment.id} experiment={experiment} />
+            )
           ) : (
             <div
               className={panel + " py-16 text-center text-sm text-slate-500"}

@@ -9,6 +9,7 @@ import os
 import socket
 import threading
 import time
+from decimal import Decimal
 from pathlib import Path
 
 import uvicorn
@@ -17,10 +18,29 @@ from test_backtesting import installed as installed
 from test_backtesting import seed
 
 from tradeguard.console import create_app
+from tradeguard.market.schemas import BarInput
+from tradeguard.market.service import save_bars
 
 
 def test_create_portfolio_report_and_manage_plugins_in_browser(database, installed, tmp_path):
     seed()
+    save_bars(
+        [
+            BarInput.model_validate(
+                {
+                    "symbol": "600000.SH",
+                    "source": "other_fixture",
+                    "adjustment": "forward",
+                    "trade_date": "2025-02-03",
+                    "open": "12",
+                    "high": "12",
+                    "low": "12",
+                    "close": "12",
+                    "volume": "100000",
+                }
+            )
+        ]
+    )
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -47,6 +67,9 @@ def test_create_portfolio_report_and_manage_plugins_in_browser(database, install
             expect(page.get_by_text("还没有此范围的回测。", exact=False)).to_be_visible()
             page.get_by_role("button", name="新建回测", exact=True).click()
             form = page.get_by_role("form", name="新建回测实验")
+            # A newer default source must not extend the explicitly selected cache.
+            expect(form.get_by_label("结束日期", exact=True)).to_have_value("2025-01-09")
+            expect(form.get_by_label("开始日期", exact=True)).to_have_value("2024-01-09")
             form.get_by_label("实验名称", exact=True).fill("浏览器多股票验收")
             form.get_by_label("开始日期", exact=True).fill("2025-01-06")
             form.get_by_label("结束日期", exact=True).fill("2025-01-09")
@@ -127,7 +150,27 @@ def test_create_portfolio_report_and_manage_plugins_in_browser(database, install
             expect(ma_card.get_by_text("昨日快/慢线为", exact=False)).to_be_visible()
             ma_card.get_by_role("button", name="用此信号回测", exact=True).click()
             form = page.get_by_role("form", name="新建回测实验")
+            experiment_name = form.get_by_label("实验名称", exact=True)
+            expect(experiment_name).to_be_focused()
+            expect(experiment_name).to_be_in_viewport(ratio=1)
+            mode_note = form.get_by_role("note", name="当前回测方式", exact=True)
+            expect(mode_note).to_contain_text("单信号策略回测")
+            expect(mode_note).to_contain_text("尚未运行")
             expect(form.get_by_role("checkbox", name="通用均线交叉", exact=True)).to_be_checked()
+            expect(form.get_by_role("checkbox", name="均线金叉多头排列")).not_to_be_checked()
+            expect(form.get_by_role("checkbox", name="箱体突破", exact=True)).not_to_be_checked()
+            form.get_by_role("checkbox", name="箱体突破", exact=True).check()
+            expect(mode_note).to_contain_text("多信号组合回测 · 2 个信号 · 全部命中")
+            form.get_by_label("组合条件", exact=True).select_option("any")
+            expect(mode_note).to_contain_text("任一命中")
+            form.get_by_label("组合条件", exact=True).select_option("at_least")
+            expect(mode_note).to_contain_text("至少 2 个命中")
+            # Reapplying the same preset also brings an already open form into view.
+            ma_card.get_by_role("button", name="用此信号回测", exact=True).click()
+            expect(experiment_name).to_be_focused()
+            expect(experiment_name).to_be_in_viewport(ratio=1)
+            expect(mode_note).to_contain_text("单信号策略回测")
+            expect(form.get_by_role("checkbox", name="箱体突破", exact=True)).not_to_be_checked()
             form.get_by_text("参数与时序窗口", exact=True).click()
             params = form.get_by_role("group", name="通用均线交叉参数", exact=True)
             params.get_by_role("spinbutton", name="快线周期", exact=False).fill("2")
@@ -144,6 +187,9 @@ def test_create_portfolio_report_and_manage_plugins_in_browser(database, install
             learning_shot = screenshot.with_name("strategy-learning.png")
             rotation_card.screenshot(path=str(learning_shot))
             rotation_card.get_by_role("button", name="用此交易策略回测", exact=True).click()
+            expect(experiment_name).to_be_focused()
+            expect(experiment_name).to_be_in_viewport(ratio=1)
+            expect(mode_note).to_contain_text("独立交易策略回测 · 多股票相对动量轮动")
             expect(form.get_by_role("checkbox", name="通用均线交叉", exact=True)).to_have_count(0)
             params = form.get_by_role("group", name="多股票相对动量轮动参数", exact=True)
             params.get_by_role("spinbutton", name="动量回看周期", exact=False).fill("2")
@@ -174,6 +220,123 @@ def test_create_portfolio_report_and_manage_plugins_in_browser(database, install
             assert learned["plugins"][0]["education"]["family"] == "轮动"
             page.get_by_role("tab", name="配置与数据清单", exact=True).click()
             expect(page.get_by_text("策略学习说明（随实验归档）", exact=True)).to_be_visible()
+            # A native strategy's private parameters must not leak into a signal run.
+            search.fill("通用均线")
+            ma_card.get_by_role("button", name="用此信号回测", exact=True).click()
+            expect(experiment_name).to_be_focused()
+            expect(experiment_name).to_be_in_viewport(ratio=1)
+            form.get_by_text("参数与时序窗口", exact=True).click()
+            params = form.get_by_role("group", name="通用均线交叉参数", exact=True)
+            params.get_by_role("spinbutton", name="快线周期", exact=False).fill("2")
+            params.get_by_role("spinbutton", name="慢线周期", exact=False).fill("3")
+            with page.expect_response("**/api/backtests/preflight") as checked:
+                form.get_by_role("button", name="检查数据", exact=True).click()
+            assert checked.value.status == 200
+            signal_config = checked.value.request.post_data_json
+            assert signal_config["portfolio_strategy"] == "signal_portfolio"
+            assert signal_config["strategy_parameters"] == {}
+            assert [s["name"] for s in signal_config["combination"]["signals"]] == [
+                "moving_average_cross"
+            ]
+            expect(form.get_by_role("status")).to_contain_text("4 个观察日")
+            form.get_by_role("button", name="开始回测", exact=True).click()
+            expect(
+                page.get_by_role("heading", name="学习回测 · 通用均线交叉", exact=True)
+            ).to_be_visible(timeout=15000)
+            expect(page.get_by_role("img", name="组合净值与基准曲线")).to_be_visible(timeout=15000)
+            # Reuse the real configuration form for same-input comparison and allocation.
+            form.get_by_label("实验名称", exact=True).fill("对比·均线")
+            form.get_by_role("button", name="加入对比 / 组合", exact=True).click()
+            study_form = page.get_by_role("region", name="策略对比与资金组合配置", exact=True)
+            expect(study_form.get_by_text("对比·均线", exact=True)).to_be_visible()
+            search.fill("多股票相对动量")
+            rotation_card.get_by_role("button", name="用此交易策略回测", exact=True).click()
+            params = form.get_by_role("group", name="多股票相对动量轮动参数", exact=True)
+            params.get_by_role("spinbutton", name="动量回看周期", exact=False).fill("2")
+            params.get_by_role("spinbutton", name="跳过近期日数", exact=False).fill("0")
+            params.get_by_role("spinbutton", name="排名入选数", exact=False).fill("1")
+            form.get_by_label("实验名称", exact=True).fill("对比·轮动")
+            form.get_by_role("button", name="加入对比 / 组合", exact=True).click()
+            ma_row = study_form.get_by_role("row").filter(
+                has=page.get_by_text("对比·均线", exact=True)
+            )
+            ma_row.get_by_role("button", name="载入编辑", exact=True).click()
+            expect(experiment_name).to_be_focused()
+            params = form.get_by_role("group", name="通用均线交叉参数", exact=True)
+            # Parameters survive loading the saved variant, and replacement does not append.
+            expect(params.get_by_role("spinbutton", name="快线周期", exact=False)).to_have_value(
+                "2"
+            )
+            form.get_by_label("实验名称", exact=True).fill("对比·均线已编辑")
+            form.get_by_role("button", name="替换正在编辑的方案", exact=True).click()
+            expect(study_form.get_by_role("row")).to_have_count(3)
+            expect(study_form.get_by_text("对比·均线", exact=True)).to_have_count(0)
+            form.get_by_label("初始资金", exact=True).fill("12000")
+            form.get_by_role("button", name="更新共同设置", exact=True).click()
+            expect(study_form.get_by_text("12,000 CNY", exact=False)).to_be_visible()
+            study_form.get_by_label("研究实验名称", exact=True).fill("浏览器同口径策略对比")
+            study_form.get_by_role("checkbox", name="确认所有方案", exact=False).check()
+            study_form.get_by_role("button", name="检查全部方案", exact=True).click()
+            expect(study_form.get_by_role("status")).to_contain_text("4 个观察日")
+            study_form.get_by_role("button", name="运行策略对比", exact=True).click()
+            expect(
+                page.get_by_role("heading", name="浏览器同口径策略对比", exact=True)
+            ).to_be_visible(timeout=15000)
+            overlay = page.get_by_role("img", name="各策略归一化净值对比曲线", exact=True)
+            expect(overlay).to_be_visible(timeout=15000)
+            expect(overlay).to_be_in_viewport(ratio=1)
+            page.get_by_role("button", name="查看对比·轮动完整报告", exact=True).click()
+            expect(page.get_by_role("heading", name="对比·轮动", exact=True)).to_be_visible()
+            expect(page.get_by_role("img", name="组合净值与基准曲线")).to_be_visible()
+            page.get_by_role("button", name="收起子报告", exact=True).click()
+            with page.expect_download() as download:
+                page.get_by_role("button", name="导出研究报告 JSON", exact=True).click()
+            target = tmp_path / "comparison.json"
+            download.value.save_as(target)
+            compared = json.loads(target.read_text())
+            assert compared["study_report"]["portfolio"] is None
+            assert len(compared["study_report"]["cases"]) == 2
+            assert all(
+                c["initial_cash"] == compared["config"]["initial_cash"]
+                for c in compared["study_report"]["cases"]
+            )
+            page.get_by_role("button", name="策略对比 / 资金组合", exact=True).click()
+            study_form.get_by_role("tab", name="资金组合", exact=True).click()
+            study_form.get_by_label("研究实验名称", exact=True).fill("浏览器独立资金组合")
+            first_weight = study_form.get_by_role(
+                "spinbutton", name="对比·均线已编辑初始资金比例百分数", exact=True
+            )
+            first_weight.fill("75")
+            study_form.get_by_role("button", name="检查全部方案", exact=True).click()
+            expect(study_form.get_by_role("alert")).to_contain_text("100%")
+            first_weight.fill("50")
+            study_form.get_by_role("button", name="运行资金组合", exact=True).click()
+            expect(
+                page.get_by_role("heading", name="浏览器独立资金组合", exact=True)
+            ).to_be_visible(timeout=15000)
+            summary = page.get_by_role("note", name="资金组合汇总", exact=True)
+            expect(summary).to_contain_text("组合累计收益", timeout=15000)
+            expect(page.get_by_role("heading", name="各策略收益贡献", exact=True)).to_be_visible()
+            page.screenshot(path=str(screenshot.with_name("strategy-studies.png")))
+            with page.expect_download() as download:
+                page.get_by_role("button", name="导出研究报告 JSON", exact=True).click()
+            target = tmp_path / "allocation.json"
+            download.value.save_as(target)
+            allocated = json.loads(target.read_text())["study_report"]
+            assert sum(Decimal(c["initial_cash"]) for c in allocated["cases"]) == Decimal(
+                compared["config"]["initial_cash"]
+            )
+            assert sum(
+                Decimal(c["return_contribution"]) for c in allocated["attribution"]
+            ) == Decimal(allocated["portfolio"]["metrics"]["total_return"])
+            page.reload()
+            expect(page.get_by_role("note", name="资金组合汇总", exact=True)).to_contain_text(
+                "组合累计收益"
+            )
+            page.get_by_role("button", name="美股 · USD", exact=True).click()
+            expect(overlay).to_have_count(0)
+            page.get_by_role("button", name="策略对比 / 资金组合", exact=True).click()
+            expect(study_form.get_by_text("② 策略方案 · 0/8", exact=True)).to_be_visible()
             assert not errors
             browser.close()
     finally:
