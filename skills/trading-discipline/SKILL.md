@@ -170,6 +170,8 @@ uv run tradeguard discipline check --profile PROFILE_ID --file private/intent.js
 - 想动核心账户的钱去赌、想加杠杆
 - 连续 3 笔亏损还越做越急、月度回撤到 -15%
 
+- 一笔买入同时命中 3 条以上心理偏差信号（追涨、消息驱动、想回本、补仓、只因权威说好），按 universal.md 4.4 的 **Lollapalooza 熔断**劝他当天不下单、冷静 24 小时。评估任何新买入时，顺带核对交易卡上的证伪条件、最坏亏损和事前验尸有没有写。
+
 **这是救命开关，不要因为他不爱听就软化。** 情绪状态工具不会自动打分，缺证据就保持 `needs_input`，不要改口成通过。
 
 ## F. 复盘
