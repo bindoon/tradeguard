@@ -155,6 +155,31 @@ def backtest_disable(name: str):
     output(lambda: set_enabled(name, False))
 
 
+@backtest_app.command("compare-box")
+def backtest_compare_box(
+    source: Annotated[str, typer.Option()],
+    start: Annotated[str, typer.Option()],
+    end: Annotated[str, typer.Option()],
+    adjustment: str = "forward",
+    market: str = "CN",
+    symbol: Annotated[list[str] | None, typer.Option()] = None,
+):
+    """Compare box_breakout and box_high_breakout on cached daily bars. Read-only."""
+    from tradeguard.backtesting.box_compare import compare_box
+    from tradeguard.market.schemas import normalize_symbol
+
+    output(
+        lambda: compare_box(
+            source,
+            day(start),
+            day(end),
+            adjustment,
+            market.upper(),
+            [normalize_symbol(item) for item in symbol] if symbol else None,
+        )
+    )
+
+
 @app.command()
 def doctor():
     """Check DB connectivity and migration revision without printing credentials."""

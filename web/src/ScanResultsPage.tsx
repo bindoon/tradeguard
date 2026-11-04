@@ -73,6 +73,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   rsi_rebound: "RSI 超卖反弹",
   bollinger_breakout: "布林带放量突破",
   box_breakout: "箱体突破",
+  box_high_breakout: "箱体高点突破确认",
 };
 
 const REGIME_LABEL: Record<string, { text: string; color: string }> = {
@@ -106,7 +107,27 @@ const DEFAULT_SCAN_STRATEGIES = [
   "rsi_rebound",
   "bollinger_breakout",
   "box_breakout",
+  "box_high_breakout",
 ];
+
+function strategyNamesOf(raw: string[] | string): string[] {
+  if (Array.isArray(raw)) return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+function compareByResonance(left: ScanResult, right: ScanResult) {
+  const byCount = right.resonanceCount - left.resonanceCount;
+  if (byCount) return byCount;
+  const prefer =
+    Number(strategyNamesOf(right.strategiesHit).includes("box_high_breakout")) -
+    Number(strategyNamesOf(left.strategiesHit).includes("box_high_breakout"));
+  if (prefer) return prefer;
+  return left.stockCode.localeCompare(right.stockCode);
+}
 
 function formatCount(value: number | null | undefined) {
   return typeof value === "number" ? value.toLocaleString() : "--";
@@ -520,8 +541,8 @@ export default function ScanResultsPage({
 
     const normalized = items.map((item) => ({
       ...item,
-      stocks: [...(stocksByIndustry.get(item.industry) ?? [])].sort(
-        (left, right) => right.resonanceCount - left.resonanceCount,
+        stocks: [...(stocksByIndustry.get(item.industry) ?? [])].sort(
+        compareByResonance,
       ),
     }));
 
@@ -539,9 +560,7 @@ export default function ScanResultsPage({
               .reduce((sum, stock) => sum + stock.sectorStrength!, 0) /
             stocks.filter((stock) => stock.sectorStrength != null).length
           : null,
-        stocks: [...stocks].sort(
-          (left, right) => right.resonanceCount - left.resonanceCount,
-        ),
+        stocks: [...stocks].sort(compareByResonance),
       }))
       .sort((left, right) => (right.rsScore ?? 0) - (left.rsScore ?? 0));
   }
@@ -571,6 +590,7 @@ export default function ScanResultsPage({
       return item.resonanceCount;
     };
     return [...filtered].sort((left, right) => {
+      if (sortKey === "resonance") return compareByResonance(left, right);
       const a = value(left);
       const b = value(right);
       if (typeof a === "number" && typeof b === "number") return b - a;

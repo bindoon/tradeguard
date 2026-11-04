@@ -27,7 +27,8 @@
 
 - selection 用 SQLite 的 `scan_results` / `scan_summaries`。这里对应 MySQL 的 `scan_result`、`scan_summary` 和 `job_run`，由 Alembic 管理。
 - 主板以外保留交易所带宽：创业板/科创板 19.5%，北交所 29.5%。若 selection 对所有板块都用 9.5%，则 10%–19% 的创业板涨幅会被它留下、被这里剔除。
-- `two_bullish_one_bearish` 仍不在每日五个策略里，因为它依赖前序信号。
+- `two_bullish_one_bearish` 仍不在每日主策略里，因为它依赖前序信号。
+- 每日扫描在 selection 的五个策略之外增加 `box_high_breakout`（箱体上沿取最高价，收盘确认，默认窗口 20、振幅严格小于 15%、突破至少 1%、量能至少 1.5 倍 20 日均量）。`box_breakout` 保持原规则。两只同时命中只计一次共振；共振相同时排序优先箱体高点突破确认。
 - 不移植模拟盘、回测和云端上传。
 - akshare 的成交量单位是手，入库前乘以 100，与 baostock 的「股」对齐。
 - 美股和港股仍要显式指定来源。这条日更命令只覆盖 A 股。

@@ -48,6 +48,13 @@ export const STRATEGIES: StrategyDefinition[] = [
     icon: '📦',
     color: 'from-violet-600 to-purple-700',
   },
+  {
+    name: 'box_high_breakout',
+    title: '箱体高点突破确认',
+    description: '横盘整理 20 日后收盘首次放量突破箱体最高价，箱体振幅 < 15%，收盘高于最高价至少 1%，量能 ≥ 1.5×MA20。',
+    icon: '📦',
+    color: 'from-fuchsia-600 to-violet-700',
+  },
 ];
 
 export const STRATEGY_MAP = Object.fromEntries(

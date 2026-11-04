@@ -203,7 +203,7 @@ def test_turtle_uses_decimal_risk_and_only_confirms_real_quantity_increases():
 def test_library_api_guides_parameters_and_native_report_are_frozen(database, monkeypatch):
     catalog = TestClient(create_app()).get("/api/backtests/plugins").json()
     by_name = {item["name"]: item for item in catalog}
-    assert len(GUIDES) == 15
+    assert len(GUIDES) == 16
     assert set(GUIDES) <= set(by_name)
     for name in GUIDES:
         guide = by_name[name]["education"]

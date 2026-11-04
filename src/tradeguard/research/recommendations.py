@@ -10,6 +10,7 @@ from tradeguard.db.models import ResearchReport, Run, ScanResult, ScanSummary, S
 from tradeguard.portfolio.schemas import StrictModel
 from tradeguard.report import _pick, daily_report
 from tradeguard.screening.availability import bounded_day
+from tradeguard.screening.resonance import rank_key
 from tradeguard.workspace.schemas import Scope
 
 PACK = "recommendation_evidence_v1"
@@ -74,7 +75,12 @@ def prepare(scope: Scope, target: date) -> dict:
             .where(ScanResult.run_id == run.id, Security.market == scope.market)
         ).all()
         candidates = []
-        for row in sorted(rows, key=lambda r: (-(r.resonance_count or len(r.hits)), r.symbol)):
+        for row in sorted(
+            rows,
+            key=lambda r: rank_key(
+                r.resonance_count or len(r.hits or []), list(r.hits or []), r.symbol
+            ),
+        ):
             if not row.hits or row.trade_date != target:
                 continue
             candidate = _pick(row)

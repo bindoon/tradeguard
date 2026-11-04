@@ -81,7 +81,7 @@ uv run tradeguard market quality --market CN --date 2026-10-16 --source baostock
 
 日期为示例，应选择已完成交易日。默认日常任务读取缓存；`--refresh` 才联网。baostock 支持沪深 A 股，Longbridge 支持已配置权限的市场；不静默换源。US/HK 从明确指定的证券或已登记证券池采集，当前不声称覆盖整个市场。
 
-五个主策略为均线金叉、MACD 金叉、RSI 反弹、布林带突破、箱体突破。扫描包含 ST、停牌、上市时间、流动性和 A 股涨跌幅过滤；参数随市场变化。缺上市日期且历史无法证明年龄时明确提示，缺基准指数时相对强度和市场环境为未知。每个批次保留输入摘要、策略版本、进度事件、过滤原因和缺口；缺行情标为 partial。
+六个主策略为均线金叉、MACD 金叉、RSI 反弹、布林带突破、箱体突破、箱体高点突破确认。箱体突破仍用窗口内最高收盘画上沿；箱体高点突破确认改用最高价画上沿，并用收盘确认。两只同时命中只计一次共振，共振相同时排序优先箱体高点突破确认。扫描包含 ST、停牌、上市时间、流动性和 A 股涨跌幅过滤；参数随市场变化。缺上市日期且历史无法证明年龄时明确提示，缺基准指数时相对强度和市场环境为未知。每个批次保留输入摘要、策略版本、进度事件、过滤原因和缺口；缺行情标为 partial。
 
 控制台提供市场切换、历史扫描（`/scan`）、单日结果（`/scan/:date`，可按共振、行业强度、代码、名称排序，并按行业和策略过滤）、筛选器（`/screener`）、个股 K 线与策略信号（`/stock/:code`）、真实持仓（`/portfolio`，`/monitor` 打开同一持仓页）以及策略与组合回测（`/backtests`）。不会自动混用 A 股与美股数据。扫描详情图表使用该批次的来源与交易日。信号标记只画在同一来源的已保存扫描上。前端以 selection/litefront 为参考；模拟回测与真实账户隔离，不提供实盘下单。
 
@@ -97,7 +97,7 @@ uv run tradeguard serve
 
 运行迁移并构建前端后，侧栏“策略与回测”（`/backtests`）可启停已安装插件、配置股票池与信号组合、检查数据并运行实验。报告保存组合净值、回撤、基准（不足时未知）、费用、逐笔成交、未成交原因、每日持仓、输入版本和模型限制，可导出 JSON。多股票共享资金，收盘信号最早次日开盘成交；与真实持仓和券商订单完全分开。
 
-点击“策略管理”，或打开 `/backtests?learn=1`，可以浏览 **11 个信号与 4 个交易策略**。每张卡片可展开思路、精确条件、适用研究场景、仓位、参数释义、数据预热、合成例子、局限与来源，并直接带入回测配置。新增通用均线、唐奇安突破、RSI(2) 回归、布林回归、绝对价格动量，以及相对动量轮动、同币种双动量、日线海龟风格组合。新策略提供中文参数表单；高级 JSON 仍可选用。默认值仅为研究示例，不会激活个人纪律。
+点击“策略管理”，或打开 `/backtests?learn=1`，可以浏览 **12 个信号与 4 个交易策略**。每张卡片可展开思路、精确条件、适用研究场景、仓位、参数释义、数据预热、合成例子、局限与来源，并直接带入回测配置。新增通用均线、唐奇安突破、RSI(2) 回归、布林回归、绝对价格动量，以及相对动量轮动、同币种双动量、日线海龟风格组合。新策略提供中文参数表单；高级 JSON 仍可选用。默认值仅为研究示例，不会激活个人纪律。
 
 信号组合插件需设置 `combination`；三个自行选股的交易策略必须用 `combination: null`，避免混淆实际条件。交易插件的动量排名或 ATR 决策记录在订单依据中，学习说明和参数定义随报告归档。`examples/backtest-rotation.json` 展示独立轮动配置；其行情仍来自合成样例。
 
@@ -113,9 +113,10 @@ uv run tradeguard backtest report --run RUN_ID
 uv run tradeguard backtest replay --run RUN_ID
 uv run tradeguard backtest disable box_breakout
 uv run tradeguard backtest enable box_breakout
+uv run tradeguard backtest compare-box --source legacy_mysql --start 2026-01-01 --end 2026-06-25
 ```
 
-将 [examples/backtest.json](examples/backtest.json) 复制到 `private/backtest.json` 后，按实际缓存填写日期、来源、股票池和执行参数。该文件只适用于 `market import --file examples/bars.csv` 的合成样例，不是个人交易规则。支持 `all/any/at_least` 组合、最近 N 日信号、日/周/月调仓，以及显式止损/止盈/跟踪退出/持有期限。已安装 Python 包可通过 entry points 新增信号和交易策略；`scan run --strategy NAME` 也可选择信号插件。
+将 [examples/backtest.json](examples/backtest.json) 复制到 `private/backtest.json` 后，按实际缓存填写日期、来源、股票池和执行参数。该文件只适用于 `market import --file examples/bars.csv` 的合成样例，不是个人交易规则。`box_high_breakout` 可加入 `combination.signals`，参数 `box_period`、`max_box_range_pct`、`min_breakout_pct`、`vol_mult` 有默认值；与 `box_breakout` 同时入选时，组合票数按一个箱体家族计算。`backtest compare-box` 只读 `daily_bar`，按策略汇总 5/10/20 根前向收益、20 根最大有利/不利偏移和 3 根内跌回 `box_top` 的比例。`--source` 换成自己的行情来源，日期必须是已入库区间。支持 `all/any/at_least` 组合、最近 N 日信号、日/周/月调仓，以及显式止损/止盈/跟踪退出/持有期限。已安装 Python 包可通过 entry points 新增信号和交易策略；`scan run --strategy NAME` 也可选择信号插件。
 
 现阶段只支持日线，回放不联网。冻结行情在缓存修订后仍可重放；代码版本改变时明确拒绝重放旧版本。固定股票池、未核验完整历史交易日历、复权研究或原始价未处理公司行为等限制会写入报告，不能当作真实成交或完整总回报。分钟/tick 不会从日线补造。详见 [回测架构与插件接口](docs/architecture/backtesting.md)。
 

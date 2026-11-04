@@ -8,6 +8,7 @@ from sqlalchemy import select
 from tradeguard.db import session
 from tradeguard.db.models import DailyBar, ScanResult, ScanSummary, Security, now
 from tradeguard.market.schemas import normalize_symbol
+from tradeguard.screening.resonance import shown_resonance
 from tradeguard.workspace.schemas import Scope
 
 
@@ -61,7 +62,9 @@ def public_data(scope: Scope, target: date, symbols: list[str]) -> dict:
                         for b in bars
                     ],
                     "strategies": list(hit.hits) if hit else [],
-                    "resonance_count": len(hit.hits) if hit else None,
+                    "resonance_count": None
+                    if hit is None
+                    else shown_resonance(hit.resonance_count, hit.hits),
                 }
             )
         return {

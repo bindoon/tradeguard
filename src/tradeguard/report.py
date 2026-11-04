@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from tradeguard.db import session
 from tradeguard.db.models import ScanResult, ScanSummary
+from tradeguard.screening.resonance import rank_key
 
 
 def _reasons(snapshot: dict[str, Any] | None) -> list[str]:
@@ -113,7 +114,10 @@ def daily_report(
                 db.scalars(select(ScanResult).where(ScanResult.run_id == previous.run_id)).all()
             )
     ranked_rows = sorted(
-        rows, key=lambda row: (-(row.resonance_count or len(row.hits)), row.symbol)
+        rows,
+        key=lambda row: rank_key(
+            row.resonance_count or len(row.hits or []), list(row.hits or []), row.symbol
+        ),
     )
     resonant = [row for row in ranked_rows if (row.resonance_count or len(row.hits)) >= 2]
     picks = [_pick(row) for row in (resonant or ranked_rows)[:20]]

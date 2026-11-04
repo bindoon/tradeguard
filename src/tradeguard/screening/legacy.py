@@ -17,6 +17,7 @@ from tradeguard.db.models import Run, ScanResult, Security
 from tradeguard.db.readonly import open_readonly
 from tradeguard.market.schemas import currency_for, normalize_symbol
 from tradeguard.screening.availability import today
+from tradeguard.screening.resonance import independent_votes, ordered_hits
 
 
 def _save(source_run, source_results, source_identity):
@@ -42,9 +43,10 @@ def _save(source_run, source_results, source_identity):
             not isinstance(item, str) or not item for item in hits
         ):
             raise ValueError("Invalid legacy strategy list; no partial run was saved")
-        hits = list(dict.fromkeys(hits))
+        hits = ordered_hits(list(dict.fromkeys(hits)))
         if not hits:
             continue
+        votes = independent_votes(hits)
         try:
             price = Decimal(str(raw["latest_price"]))
         except InvalidOperation as exc:
@@ -52,7 +54,7 @@ def _save(source_run, source_results, source_identity):
         if not price.is_finite() or price <= 0:
             raise ValueError("Invalid legacy scan price; no partial run was saved")
         counts.update(hits)
-        parsed.append((symbol, raw, hits, price))
+        parsed.append((symbol, raw, hits, price, votes))
     original = json.loads(source_run["message"] or "{}")
     if not isinstance(original, dict):
         raise ValueError("Invalid legacy scan summary")
@@ -74,7 +76,7 @@ def _save(source_run, source_results, source_identity):
         "scanned_count": source_run["tradable_count"],
         "universe": None,
         "filtered_out_count": None,
-        "resonance_count": sum(len(hits) >= 2 for _, _, hits, _ in parsed),
+        "resonance_count": sum(item_votes >= 2 for _, _, _, _, item_votes in parsed),
         "strategy_hit_counts": {name: counts[name] for name in strategies},
         "strategies": strategies,
         "market_regime": "unknown",
@@ -104,7 +106,7 @@ def _save(source_run, source_results, source_identity):
             )
         )
         db.flush()
-        for symbol, raw, hits, price in parsed:
+        for symbol, raw, hits, price, votes in parsed:
             if db.get(Security, symbol) is None:
                 db.add(
                     Security(
@@ -122,7 +124,7 @@ def _save(source_run, source_results, source_identity):
                     symbol=symbol,
                     trade_date=target,
                     hits=hits,
-                    resonance_count=len(hits),
+                    resonance_count=votes,
                     close=price,
                     sector_strength=None,
                     metadata_snapshot={
