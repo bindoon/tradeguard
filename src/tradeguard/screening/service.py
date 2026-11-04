@@ -25,6 +25,7 @@ from tradeguard.db.models import (
 from tradeguard.db.write import upsert
 from tradeguard.screening import indicators
 from tradeguard.screening.filters import FilterOptions, rejection
+from tradeguard.screening.resonance import order_hit_details, rank_key
 
 DEFAULT_STRATEGIES = [
     "ma_golden_cross",
@@ -32,6 +33,8 @@ DEFAULT_STRATEGIES = [
     "rsi_rebound",
     "bollinger_breakout",
     "box_breakout",
+    # Close-confirmed high breakout. Resonance counts it with box_breakout once.
+    "box_high_breakout",
 ]
 
 
@@ -265,7 +268,7 @@ def _scan(
                             "metadata": found.get("metadata"),
                         }
                     )
-            hits = [item["strategy"] for item in hit_details]
+            hits, hit_details, resonance = order_hit_details(hit_details)
             hit_counts.update(hits)
             if len(bars) >= 60 and sector_name:
                 amounts = [
@@ -287,6 +290,7 @@ def _scan(
                         "symbol": security.symbol,
                         "name": security.name,
                         "hits": hits,
+                        "resonance": resonance,
                         "strategy_details": hit_details,
                         "close": str(bars[-1]["close"]),
                         "industry": sector_name,
@@ -298,7 +302,8 @@ def _scan(
         event(
             run_id,
             "strategies",
-            f"已处理 {min(offset + len(batch), len(securities))}/{len(securities)} 个标的，{scanned} 个进入五策略计算。",
+            f"已处理 {min(offset + len(batch), len(securities))}/{len(securities)} 个标的，"
+            f"{scanned} 个进入 {len(strategies)} 个策略计算。",
             min(offset + len(batch), len(securities)),
             len(securities),
         )
@@ -330,9 +335,9 @@ def _scan(
         "skipped": skipped,
         "filter_counts": dict(Counter(s["reason"] for s in skipped)),
         "warnings": dict(warnings),
-        "candidate_count": sum(len(c["hits"]) >= min_resonance for c in candidates),
+        "candidate_count": sum(c["resonance"] >= min_resonance for c in candidates),
         "hit_stock_count": len(candidates),
-        "resonance_count": sum(len(c["hits"]) >= 2 for c in candidates),
+        "resonance_count": sum(c["resonance"] >= 2 for c in candidates),
         "sector_counts": dict(sectors),
         "sector_strength": rs,
         "market_regime": regime,
@@ -360,7 +365,7 @@ def _scan(
                 "market": c["market"],
                 "currency": c["currency"],
                 "sector_strength": strength,
-                "resonance_count": len(c["hits"]),
+                "resonance_count": c["resonance"],
                 "strategy_details": c["strategy_details"],
             }
             db.add(
@@ -370,7 +375,7 @@ def _scan(
                     trade_date=target,
                     hits=c["hits"],
                     close=c["close"],
-                    resonance_count=len(c["hits"]),
+                    resonance_count=c["resonance"],
                     sector_strength=None if strength is None else Decimal(str(strength)),
                     metadata_snapshot=metadata,
                 )
@@ -389,7 +394,7 @@ def _scan(
             "universe_count": len(securities),
             "scanned_count": scanned,
             "hit_count": len(candidates),
-            "resonance_count": sum(len(c["hits"]) >= 2 for c in candidates),
+            "resonance_count": sum(c["resonance"] >= 2 for c in candidates),
             "strategy_hit_counts": dict(hit_counts),
             "sector_strength": rs,
             "filter_counts": dict(Counter(s["reason"] for s in skipped)),
@@ -428,7 +433,10 @@ def _scan(
         "run_id": run_id,
         "status": "partial" if incomplete else "success",
         **details,
-        "candidates": [c for c in candidates if len(c["hits"]) >= min_resonance],
+        "candidates": sorted(
+            [c for c in candidates if c["resonance"] >= min_resonance],
+            key=lambda c: rank_key(c["resonance"], c["hits"], c["symbol"]),
+        ),
     }
 
 

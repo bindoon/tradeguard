@@ -26,6 +26,7 @@ from tradeguard.db.models import (
 from tradeguard.market.schemas import currency_for
 from tradeguard.portfolio.schemas import SnapshotInput
 from tradeguard.report import daily_report
+from tradeguard.screening.resonance import shown_resonance
 from tradeguard.workspace.schemas import AlertInput, Scope, WatchInput
 
 
@@ -158,7 +159,9 @@ def watches(scope: Scope, target: date | None = None) -> list[dict]:
                     "price_date": str(bar.trade_date) if bar else None,
                     "signal_date": str(signal.trade_date) if signal else None,
                     "strategies": signal.hits if signal else [],
-                    "resonance_count": len(signal.hits) if signal else None,
+                    "resonance_count": None
+                    if signal is None
+                    else shown_resonance(signal.resonance_count, signal.hits),
                 }
             )
         return result

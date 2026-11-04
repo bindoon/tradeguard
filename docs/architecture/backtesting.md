@@ -12,13 +12,13 @@
 4. 每个观察日先用当日开盘尝试执行前日订单，先卖后买，同方向按代码排序；再收盘估值、执行策略调度和退出检查，生成最早下一观察日执行的委托。
 5. 完成后追加报告，保存指标摘要与结果哈希；失败保存脱敏原因，不生成成功报告。图表、指标、成交和持仓均读取这份已保存报告，不重算现有行情。
 
-日/周/月调度分别指每个观察日、每周首个观察日、每月首个观察日的收盘。退出检查每天执行。`rebalance=false` 保留已有仓位，只为新候选分配名额；`true` 按调度重新选择候选并发送目标权重。内置等权目标为 `min(max_weight, invested_fraction / max_positions)`，不因候选不足自动满仓。排序支持命中数、20 日动量和代码，平分按代码处理；缺动量不参与动量排名。
+日/周/月调度分别指每个观察日、每周首个观察日、每月首个观察日的收盘。退出检查每天执行。`rebalance=false` 保留已有仓位，只为新候选分配名额；`true` 按调度重新选择候选并发送目标权重。内置等权目标为 `min(max_weight, invested_fraction / max_positions)`，不因候选不足自动满仓。排序支持命中数、20 日动量和代码。命中数按策略家族计票：`box_breakout` 与 `box_high_breakout` 同属箱体家族，任一命中记 1 票，同时命中仍是 1 票。`all` / `at_least` 的门槛也按家族数。票数相同且不是按代码排序时，已命中 `box_high_breakout` 的标的排在前面。缺动量不参与动量排名。只想要收盘对最高价的确认时，组合里只放 `box_high_breakout`。
 
 上述保留/再平衡和信号排序开关属于 `signal_portfolio`。独立交易策略有自己的选股和调仓逻辑，`uses_signals=false` 时必须显式 `combination=null`，不允许把未采用的信号附在其条件上。原有带组合的配置保持兼容。
 
 ## 经典策略与学习契约
 
-内置共 11 个信号、4 个交易策略。新增参数化信号位于 `screening/strategies/classics.py`：
+内置共 12 个信号、4 个交易策略。新增参数化信号位于 `screening/strategies/classics.py`。`box_high_breakout` 位于 `screening/strategies/box_high_breakout.py`，不修改原来的 `box_breakout`：
 
 | ID | 条件与退出 |
 | --- | --- |
@@ -27,6 +27,7 @@
 | `rsi2_reversion` | Wilder 短 RSI 超跌且位于长期简单均线上方；反弹至短均线上方退出 |
 | `bollinger_reversion` | 前日在下轨外、当日回到带内，可选趋势过滤；回到中轨退出 |
 | `absolute_momentum` | 价格收益严格高于参数门槛；回到门槛或以下退出，收益比较使用 Decimal |
+| `box_high_breakout` | 信号日前 N 根最高价/最低价形成箱体，振幅严格小于上限；收盘至少高出最高价一个幅度，且为首次突破，成交量达到均量倍数。参数默认 N=20、振幅 15%、突破 1%、量能 1.5。收盘跌破该箱体中轨退出 |
 
 新增交易策略位于 `backtesting/classic_portfolios.py`：
 
@@ -75,7 +76,9 @@ my_rotation = "my_package.portfolio:MyRotation"
 
 上下文提供当前收盘的 `current_date`、固定 `universe`、只读持仓视图、`cash/total_value`、截止当前时点的 `history(symbol,count)` 和三态 `signal(name,symbol,lookback)`。风险计算使用 `history(..., as_decimal=True)` 保留精度；`explain(symbol,evidence)` 把当前决策说明写入订单，实验的额外退出会明确覆盖该决策。数据访问必须经上下文；插件是本地受信 Python 代码，不是沙箱。HTTP 不接受 Python 源码或任意模块名。安装插件后新任务重新发现，无需修改核心；正在运行的实验使用已冻结实例和版本。
 
-普通扫描默认仍使用五个主信号并遵守启停；CLI `scan run --strategy NAME` 可显式选择插件，依赖信号被一并校验和计算。回测在页面或 CLI 按明确组合选择，不自动套用个人纪律规则。
+普通扫描默认使用六个主信号并遵守启停：原来的五只加上 `box_high_breakout`。CLI `scan run --strategy NAME` 可显式选择插件，依赖信号被一并校验和计算。回测在页面或 CLI 按明确组合选择，不自动套用个人纪律规则。
+
+`backtest compare-box --source SOURCE --start YYYY-MM-DD --end YYYY-MM-DD` 只读 `daily_bar`，比较 `box_breakout` 与 `box_high_breakout`。每个信号计算其后 5/10/20 根收盘收益、其后 20 根的最大有利和最大不利偏移，以及其后 3 根收盘跌回该信号 `box_top` 的比例。可选 `--adjustment`（默认 forward）、`--market` 和重复的 `--symbol`。区间结束后最多再读 120 个自然日，用来计算前瞻指标；不写扫描或回测记录。
 
 ## 数据频率与结果限制
 

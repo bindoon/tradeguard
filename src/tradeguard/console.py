@@ -36,6 +36,7 @@ from tradeguard.screening.availability import (
     today,
 )
 from tradeguard.screening.filters import FilterOptions
+from tradeguard.screening.resonance import shown_resonance
 from tradeguard.screening.service import create_run, scan
 from tradeguard.workspace import service as workspace
 from tradeguard.workspace.schemas import AlertInput, Scope, WatchInput
@@ -141,7 +142,7 @@ def result_rows(db, run):
             "stockName": (r.metadata_snapshot or {}).get("name") or s.name,
             "industry": (r.metadata_snapshot or {}).get("industry") or s.industry,
             "scanDate": str(r.trade_date),
-            "resonanceCount": len(r.hits),
+            "resonanceCount": shown_resonance(r.resonance_count, r.hits),
             "strategiesHit": r.hits,
             "sectorStrength": (r.metadata_snapshot or {}).get("sector_strength"),
             "latestPrice": float(r.close),
@@ -225,7 +226,19 @@ def saved_summaries(db, runs):
             ScanResult.run_id,
             industry,
             func.count(),
-            func.sum(case((func.json_length(ScanResult.hits) >= 2, 1), else_=0)),
+            func.sum(
+                case(
+                    (
+                        case(
+                            (ScanResult.resonance_count > 0, ScanResult.resonance_count),
+                            else_=func.json_length(ScanResult.hits),
+                        )
+                        >= 2,
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
         )
         .join(Security, Security.symbol == ScanResult.symbol)
         .where(ScanResult.run_id.in_([run.id for run in runs]))
@@ -298,7 +311,7 @@ def stock_signals(
             {
                 "date": str(result.trade_date),
                 "strategies": result.hits,
-                "resonanceCount": result.resonance_count or len(result.hits or []),
+                "resonanceCount": shown_resonance(result.resonance_count, result.hits),
                 "reasons": [
                     item.get("reason") or item.get("title") or item.get("strategy")
                     for item in (snap.get("strategy_details") or [])

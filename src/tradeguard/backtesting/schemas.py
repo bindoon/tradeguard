@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from tradeguard.market.schemas import currency_for, normalize_symbol
 from tradeguard.screening.availability import today
+from tradeguard.screening.resonance import independent_votes
 
 
 class StrictModel(BaseModel):
@@ -30,6 +31,8 @@ class Combination(StrictModel):
             raise ValueError("组合内信号不可重复")
         if self.minimum > len(names):
             raise ValueError("共振门槛超过信号数")
+        if self.minimum > independent_votes(names):
+            raise ValueError("共振门槛超过独立策略家族数；箱体突破与箱体高点突破确认只计一票")
         return self
 
 

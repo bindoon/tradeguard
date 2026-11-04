@@ -2,6 +2,9 @@ from tradeguard.screening.strategies.bollinger_breakout import (
     STRATEGY as BOLLINGER_BREAKOUT_STRATEGY,
 )
 from tradeguard.screening.strategies.box_breakout import STRATEGY as BOX_BREAKOUT_STRATEGY
+from tradeguard.screening.strategies.box_high_breakout import (
+    STRATEGY as BOX_HIGH_BREAKOUT_STRATEGY,
+)
 from tradeguard.screening.strategies.classics import CLASSIC_SIGNALS
 from tradeguard.screening.strategies.ma_golden_cross import STRATEGY as MA_GOLDEN_CROSS_STRATEGY
 from tradeguard.screening.strategies.macd_golden_cross import STRATEGY as MACD_GOLDEN_CROSS_STRATEGY
@@ -17,6 +20,7 @@ REGISTERED_STRATEGIES = [
     RSI_REBOUND_STRATEGY,
     BOLLINGER_BREAKOUT_STRATEGY,
     BOX_BREAKOUT_STRATEGY,
+    BOX_HIGH_BREAKOUT_STRATEGY,
     *CLASSIC_SIGNALS,
 ]
 
