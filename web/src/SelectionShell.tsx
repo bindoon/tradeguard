@@ -1,4 +1,5 @@
 import WorkspaceChrome from "./WorkspaceChrome";
+import { publicMode } from "./publicMode";
 import {
   LayoutDashboard,
   Star,
@@ -94,7 +95,7 @@ export default function SelectionShell({ currentSection, children }: Props) {
         工作空间
       </div>
       <nav aria-label="主导航" className="flex-1 space-y-1 px-3 py-1">
-        {items.map((item) => (
+        {items.filter((item) => !publicMode || ["home", "scan", "screener"].includes(item.key)).map((item) => (
           <button
             key={item.key}
             aria-current={active === item.key ? "page" : undefined}
@@ -110,7 +111,9 @@ export default function SelectionShell({ currentSection, children }: Props) {
         ))}
       </nav>
       <div className="border-t border-slate-200 px-5 py-4">
-        <p className="text-xs leading-5 text-slate-500">本地个人工作台</p>
+        <p className="text-xs leading-5 text-slate-500">
+          {publicMode ? "市场研究工作台" : "本地个人工作台"}
+        </p>
         <p className="mt-1 text-[11px] leading-5 text-slate-400">
           研究与纪律辅助 · 不自动下单
         </p>

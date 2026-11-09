@@ -1,4 +1,5 @@
 import WatchButton from "./WatchButton";
+import { publicMode } from "./publicMode";
 import ScanProgress from "./ScanProgress";
 import { useMarket, type Market } from "./MarketContext";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
@@ -669,10 +670,10 @@ export default function ScanResultsPage({
       onMonitor={onMonitor}
     >
       <div className="space-y-4">
-        <ScanProgress
+        {!publicMode && <ScanProgress
           runId={scanDate}
           onTerminal={() => setRefreshTick((t) => t + 1)}
-        />
+        />}
         {summary?.recordOrigin === "legacy_scan_cache" && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
             <b>历史扫描导入</b> · 保留原执行时间与逐股策略记录。

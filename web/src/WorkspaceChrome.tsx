@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { openPath, scopedPath, useMarket } from "./MarketContext";
 import { searchStocks } from "./workspaceApi";
 import NotificationBell from "./NotificationBell";
+import { publicMode } from "./publicMode";
 import { ChevronLeft, ChevronRight, Search, X, List } from "lucide-react";
 import { apiFetch } from "./api";
 import {
@@ -37,9 +38,9 @@ export default function WorkspaceChrome() {
   const fixed = [
     { label: "工作台", path: "/" },
     { label: "每日扫描", path: "/scan" },
-    { label: "自选", path: "/watchlist" },
   ];
-  if (location.pathname === "/portfolio" || location.pathname === "/monitor")
+  if (!publicMode) fixed.push({ label: "自选", path: "/watchlist" });
+  if (!publicMode && (location.pathname === "/portfolio" || location.pathname === "/monitor"))
     fixed.push({ label: "我的持仓", path: "/portfolio" });
   if (location.pathname === "/screener")
     fixed.push({ label: "股票筛选器", path: "/screener" });
@@ -337,7 +338,7 @@ export default function WorkspaceChrome() {
           >
             <Search size={18} />
           </button>
-          <NotificationBell />
+          {!publicMode && <NotificationBell />}
         </div>
       </div>
       {open && (

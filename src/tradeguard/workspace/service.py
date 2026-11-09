@@ -564,7 +564,7 @@ def position_reviews(scope: Scope) -> list[dict]:
     return result
 
 
-def overview(scope: Scope, target: date | None = None) -> dict:
+def overview(scope: Scope, target: date | None = None, *, include_private: bool = True) -> dict:
     from tradeguard.research.recommendations import latest
 
     target = bounded_day(target)
@@ -585,6 +585,9 @@ def overview(scope: Scope, target: date | None = None) -> dict:
             if summary
             else None
         )
+        public_report = {"scope": scope.model_dump(), "as_of": now().isoformat(), "report": report}
+        if not include_private:
+            return public_report
         profiles = [
             {"id": r.id, "name": r.name, "created_at": r.created_at.isoformat(), "rules": r.rules}
             for r in db.scalars(select(RuleProfile).order_by(RuleProfile.created_at.desc())).all()
@@ -605,9 +608,7 @@ def overview(scope: Scope, target: date | None = None) -> dict:
             == {"CN": "CNY", "US": "USD", "HK": "HKD"}[scope.market]
         ]
     return {
-        "scope": scope.model_dump(),
-        "as_of": now().isoformat(),
-        "report": report,
+        **public_report,
         "recommendation": latest(scope, target),
         "watchlist": watches(scope, target),
         "position_reviews": position_reviews(scope),

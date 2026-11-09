@@ -12,6 +12,7 @@ import { STRATEGY_MAP } from "./strategies";
 import WatchButton from "./WatchButton";
 import ResearchShortlist from "./ResearchShortlist";
 import EmptyMarket from "./EmptyMarket";
+import { publicMode } from "./publicMode";
 export default function HomePage(props: SelectionNavProps) {
   const { market, source, adjustment, info } = useMarket();
   const [data, setData] = useState<Workspace | null>(null);
@@ -55,6 +56,7 @@ export default function HomePage(props: SelectionNavProps) {
   const currentCache = info?.sources.find(
     (s) => s.source === source && s.adjustment === adjustment,
   );
+  const archivedScan = publicMode && !report ? currentCache?.latest_scan_date : null;
   const adjustmentLabel = (value: string) =>
     value === "forward" ? "前复权" : value === "backward" ? "后复权" : "不复权";
   return (
@@ -62,14 +64,14 @@ export default function HomePage(props: SelectionNavProps) {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs tracking-widest text-emerald-700">
-            我的研究与决策
+            {publicMode ? "市场研究" : "我的研究与决策"}
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-900">每日工作台</h1>
           <p className="mt-2 text-sm text-slate-500">
             查看最近一次扫描选出的股票，点开候选查看图表与命中原因。
           </p>
         </div>
-        <button
+        {!publicMode && <button
           className="tg-button"
           disabled={!source || busy}
           onClick={async () => {
@@ -85,7 +87,7 @@ export default function HomePage(props: SelectionNavProps) {
           }}
         >
           {busy ? "正在评估…" : "刷新缓存提醒"}
-        </button>
+        </button>}
       </header>
       {loading && <p className="tg-muted">正在整理当前市场工作台…</p>}
       {error && (
@@ -133,10 +135,12 @@ export default function HomePage(props: SelectionNavProps) {
             {[
               [
                 "最近扫描",
-                report?.trade_date || "尚无扫描",
+                report?.trade_date || archivedScan || "尚无扫描",
                 report
                   ? `${report.source} · ${report.status === "success" ? "完整" : "部分完成"}`
-                  : "选择扫描日期后执行缓存扫描",
+                  : archivedScan
+                    ? "已保存的历史扫描"
+                    : publicMode ? "暂无已保存的扫描" : "选择扫描日期后执行缓存扫描",
               ],
               [
                 "市场状态",
@@ -158,14 +162,14 @@ export default function HomePage(props: SelectionNavProps) {
                 "持仓待处理",
                 data
                   ? String(
-                      data.position_reviews.filter(
+                      data.position_reviews?.filter(
                         (r) => r.decision !== "observe",
-                      ).length,
+                      ).length ?? 0,
                     )
                   : "—",
                 "过期观察、退出复核与证据缺口",
               ],
-            ].map(([label, value, note]) => (
+            ].slice(0, publicMode ? 3 : 4).map(([label, value, note]) => (
               <section className="tg-panel" key={label}>
                 <p className="text-xs text-slate-500">{label}</p>
                 <p className="my-3 text-2xl font-semibold text-slate-900">
@@ -175,7 +179,7 @@ export default function HomePage(props: SelectionNavProps) {
               </section>
             ))}
           </div>
-          <details className="tg-panel">
+          {!publicMode && <details className="tg-panel">
             <summary className="cursor-pointer font-medium text-slate-700">持仓复核 · {data?.position_reviews.filter((r) => r.decision !== "observe").length || 0} 项待处理（展开查看）</summary>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="tg-title">先看我的持仓 · 买卖复核</h2>
@@ -264,9 +268,9 @@ export default function HomePage(props: SelectionNavProps) {
                 ))}
               </div>
             )}
-          </details>
-          <ResearchShortlist report={data?.recommendation || null} latestScanDate={report?.trade_date} />
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]">
+          </details>}
+          {!publicMode && <ResearchShortlist report={data?.recommendation || null} latestScanDate={report?.trade_date} />}
+          <div className={publicMode ? "" : "grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)]"}>
             <section className="tg-panel">
               <div className="flex justify-between">
                 <h2 className="tg-title">{report ? `${report.trade_date} 策略候选` : "策略候选"}</h2>
@@ -274,7 +278,10 @@ export default function HomePage(props: SelectionNavProps) {
                   className="text-sm text-cyan-700"
                   onClick={() =>
                     openPath(
-                      scopedPath(report ? "/scan/" + report.run_id : "/scan"),
+                      scopedPath(
+                        report ? "/scan/" + report.run_id
+                          : archivedScan ? "/scan/" + archivedScan : "/scan",
+                      ),
                     )
                   }
                 >
@@ -290,7 +297,11 @@ export default function HomePage(props: SelectionNavProps) {
               )}
               {!report ? (
                 <p className="tg-muted">
-                  本市场、来源和复权尚无扫描结果。可以在每日扫描中选择已保存行情执行。
+                  {archivedScan
+                    ? "本次为历史扫描归档，可打开扫描明细查看候选和策略命中。"
+                    : publicMode
+                      ? "本市场、来源和复权暂无已保存的扫描。"
+                      : "本市场、来源和复权尚无扫描结果。可以在每日扫描中选择已保存行情执行。"}
                 </p>
               ) : !report.top_resonance.length ? (
                 <p className="tg-muted">本次扫描没有策略命中。</p>
@@ -337,7 +348,7 @@ export default function HomePage(props: SelectionNavProps) {
                 </div>
               )}
             </section>
-            <div className="space-y-4">
+            {!publicMode && <div className="space-y-4">
               <section className="tg-panel">
                 <div className="flex justify-between">
                   <h2 className="tg-title">我的自选</h2>
@@ -402,7 +413,7 @@ export default function HomePage(props: SelectionNavProps) {
                     ))
                 )}
               </section>
-            </div>
+            </div>}
           </div>
           <div className="grid gap-4 xl:grid-cols-2">
             <section className="tg-panel">
@@ -462,7 +473,7 @@ export default function HomePage(props: SelectionNavProps) {
               )}
             </section>
           </div>
-          <section className="tg-panel">
+          {!publicMode && <section className="tg-panel">
             <h2 className="tg-title">最近的个人纪律检查</h2>
             {!data?.recent_checks.length ? (
               <p className="tg-muted">
@@ -490,7 +501,7 @@ export default function HomePage(props: SelectionNavProps) {
                 </div>
               ))
             )}
-          </section>
+          </section>}
         </>
       )}
     </SelectionShell>

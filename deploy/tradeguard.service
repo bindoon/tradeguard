@@ -1,0 +1,22 @@
+[Unit]
+Description=TradeGuard online console
+After=network-online.target tradeguard-db-tunnel.service
+Wants=network-online.target tradeguard-db-tunnel.service
+
+[Service]
+User=tradeguard-web
+Group=tradeguard-web
+WorkingDirectory=/srv/tradeguard/native-app
+EnvironmentFile=/srv/tradeguard/.app.env
+Environment=PYTHONPATH=/srv/tradeguard/native-app/src
+ExecStart=/srv/tradeguard/native-app/.venv/bin/python -m uvicorn tradeguard.console:create_app --factory --host 127.0.0.1 --port 8198
+Restart=on-failure
+RestartSec=5
+MemoryMax=768M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

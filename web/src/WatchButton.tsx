@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { saveWatch } from "./workspaceApi";
+import { publicMode } from "./publicMode";
 export default function WatchButton({
   symbol,
   runId,
@@ -11,6 +12,7 @@ export default function WatchButton({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  if (publicMode) return null;
   return (
     <div>
       <button className="tg-button" onClick={() => setOpen((v) => !v)}>

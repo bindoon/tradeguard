@@ -9,7 +9,9 @@ import ScanResultsPage from "./ScanResultsPage";
 import ScreenerPage from "./ScreenerPage";
 import StockDetailPage from "./StockDetailPage";
 import PortfolioPage from "./PortfolioPage";
+import PortfolioAccess from "./PortfolioAccess";
 import BacktestsPage from "./BacktestsPage";
+import { publicMode } from "./publicMode";
 import "./index.css";
 
 type View =
@@ -117,9 +119,9 @@ function App() {
     navigate(fallbackView, true);
   }
 
-  if (view.type === "backtests") return <BacktestsPage id={view.id} />;
-  if (view.type === "watchlist") return <WatchlistPage {...navProps} />;
-  if (view.type === "alerts") return <AlertsPage {...navProps} />;
+  if (!publicMode && view.type === "backtests") return <BacktestsPage id={view.id} />;
+  if (!publicMode && view.type === "watchlist") return <WatchlistPage {...navProps} />;
+  if (!publicMode && view.type === "alerts") return <AlertsPage {...navProps} />;
 
   if (view.type === "scan-dates") {
     return (
@@ -182,8 +184,9 @@ function App() {
   }
 
   if (view.type === "portfolio") {
+    const Portfolio = publicMode ? PortfolioAccess : PortfolioPage;
     return (
-      <PortfolioPage
+      <Portfolio
         {...navProps}
         onBack={() => navigate({ type: "home" })}
         onSelectStock={(code, name) =>

@@ -8,12 +8,13 @@ from typing import Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import case, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from tradeguard.config import settings
 from tradeguard.db import session
 from tradeguard.db.models import (
     DailyBar,
@@ -348,13 +349,24 @@ class CheckInput(BaseModel):
 
 
 def create_app():
-    app = FastAPI(title="TradeGuard local console")
+    cfg = settings()
+    public = cfg.public_origin is not None
+    app = FastAPI(
+        title="TradeGuard console",
+        openapi_url=None if public else "/openapi.json",
+    )
+    if public:
+        from tradeguard.public_access import configure_public_access
+
+        configure_public_access(app, cfg)
     from tradeguard.backtesting.api import router as backtest_router
 
     app.include_router(backtest_router)
 
     @app.middleware("http")
     async def same_origin(request: Request, call_next):
+        if public:
+            return await call_next(request)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
             allowed = {
@@ -394,10 +406,8 @@ def create_app():
     def workspace_overview(
         market: str, source: str, adjustment: str = "forward", target: date | None = None
     ):
-        return workspace.overview(
-            Scope.model_validate({"market": market, "source": source, "adjustment": adjustment}),
-            target,
-        )
+        scope = Scope.model_validate({"market": market, "source": source, "adjustment": adjustment})
+        return workspace.overview(scope, target, include_private=not public)
 
     @app.get("/api/search")
     def search_stocks(market: str, source: str, q: str = "", adjustment: str = "forward"):
@@ -778,11 +788,21 @@ def create_app():
     web = Path(__file__).resolve().parents[2] / "web" / "dist"
     if web.exists():
         app.mount("/assets", StaticFiles(directory=web / "assets"), name="assets")
+        index = web / "index.html"
+        public_index = (
+            index.read_text(encoding="utf-8").replace(
+                "</head>", '<meta name="tradeguard-public" content="true" /></head>'
+            )
+            if public
+            else None
+        )
 
         @app.get("/{path:path}")
         def spa(path: str):
             if path.startswith("api/"):
                 raise HTTPException(404)
-            return FileResponse(web / "index.html")
+            if public_index is not None:
+                return HTMLResponse(public_index, headers={"Cache-Control": "no-cache"})
+            return FileResponse(index)
 
     return app

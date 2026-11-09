@@ -13,6 +13,7 @@ import { useMarket } from "./MarketContext";
 import WatchButton from "./WatchButton";
 import TradeCheck from "./TradeCheck";
 import { createAlert } from "./workspaceApi";
+import { publicMode } from "./publicMode";
 import { STRATEGY_MAP } from "./strategies";
 
 const Plot = lazy(() => import("react-plotly.js"));
@@ -119,6 +120,7 @@ export default function StockDetailPage({
   const [accountError, setAccountError] = useState("");
   const [accountsLoading, setAccountsLoading] = useState(true);
   useEffect(() => {
+    if (publicMode) return;
     let cancelled = false;
     setAccounts([]);
     setAccountError("");
@@ -196,7 +198,7 @@ export default function StockDetailPage({
           {error}
         </p>
       )}
-      <div className="flex flex-wrap items-start gap-3">
+      {!publicMode && <div className="flex flex-wrap items-start gap-3">
         <WatchButton symbol={stockCode} />
         <form
           className="flex flex-wrap gap-2"
@@ -241,7 +243,7 @@ export default function StockDetailPage({
             创建提醒
           </button>
         </form>
-      </div>
+      </div>}
       {alertMessage && (
         <p role="status" className="text-sm text-cyan-700">
           {alertMessage}
@@ -250,7 +252,7 @@ export default function StockDetailPage({
       {endDate && (
         <p className="text-xs text-amber-700">
           历史图表截止 {endDate}
-          ；下方账户为最近保存的真实观察，各自时间单独标注。
+          {!publicMode && "；下方账户为最近保存的真实观察，各自时间单独标注。"}
         </p>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -438,10 +440,10 @@ export default function StockDetailPage({
           </Suspense>
         )}
       </section>
-      <TradeCheck
+      {!publicMode && <TradeCheck
         key={stockCode + market + source + adjustment}
         symbol={stockCode}
-      />
+      />}
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="font-semibold text-slate-900">信号记录</h2>
         {marked.length === 0 ? (
@@ -476,7 +478,7 @@ export default function StockDetailPage({
           </ul>
         )}
       </section>
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      {!publicMode && <section className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="mb-4 flex justify-between">
           <h2 className="font-semibold text-slate-900">该标的的真实持仓与条件单</h2>
           <button onClick={onPortfolio} className="text-sm text-cyan-700">
@@ -555,7 +557,7 @@ export default function StockDetailPage({
             );
           })
         )}
-      </section>
+      </section>}
     </SelectionShell>
   );
 }

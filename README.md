@@ -213,9 +213,11 @@ docker compose -f compose.yaml -f deploy/compose.local.yaml up -d --build --wait
 
 券商配置由你在本地显式添加到服务环境；默认容器不配置券商凭证。富途 OpenD 集成使用上面的宿主机安装路径，或自行安装对应可选依赖并配置网关。详细部署与公开边界见 [部署文档](docs/architecture/deployment.md)。
 
-## 公共展示包（与个人控制台分离）
+## 线上控制台与独立展示包
 
-为后续 `stock.zhiyu.hk` 展示准备了独立静态导出。选择你有权公开的数据、明确标的与交易日，输出目录必须为空：
+`stock.zhiyu.hk` 使用线上只读模式。匿名访问可查看行情、扫描和筛选器，持仓入口为手动打开的 `/portfolio`，登录后可查看已保存的快照。部署方式和数据来源见 [部署文档](docs/architecture/deployment.md)。
+
+也可独立导出静态 HTML。选择你有权公开的数据、明确标的与交易日，输出目录必须为空：
 
 ```bash
 uv run tradeguard public export --market CN --source baostock --date 2026-10-22 \

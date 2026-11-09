@@ -1,4 +1,4 @@
-# 本地私有环境与公共展示
+# 本地与线上部署
 
 ## 个人使用
 
@@ -6,7 +6,28 @@ Python CLI 与 FastAPI 共用业务服务，账户控制台只绑定本机。原
 
 镜像分两阶段构建：Node 22 构建 TypeScript/React，Python 3.12 / Debian trixie（满足 Longbridge Linux wheel 的 glibc 下限）安装锁定 Python 依赖及 market/longbridge extras，复制编译资源与 Alembic 迁移。启动时先迁移独立运行库，成功后再启动 HTTP。运行用户不是 root。构建上下文排除 `.env`、private、data、logs、Git、虚拟环境和 node_modules；镜像没有个人配置，默认空库不自动导入示例或任何账户。
 
-同一端口的本机 Origin 可写，额外允许明确的前端开发 Origin；外部网页和其他任意本机端口的 Origin 被拒绝。默认账户控制台没有公网鉴权、租户隔离或远程安全承诺。不要把它直接作为 stock.zhiyu.hk 的上游。
+同一端口的本机 Origin 可写，额外允许明确的前端开发 Origin。对外部署使用下面的线上模式。
+
+## 线上只读控制台
+
+`deploy/tradeguard.service` 在 kueng 上将控制台绑定到 `127.0.0.1:8198`。部署使用原阿里云 RDS 实例的独立 `tradeguard` 库和专用账号。该实例版本是 MySQL 8.0.36，本地开发仍用 MySQL 8.4。kueng 的 `tradeguard-db-tunnel.service` 将本机端口 `53316` 经 SSH 转发至 zhiyu 能访问的 RDS 私网端点。转发账号只允许访问该端点。
+
+部署目录 `/srv/tradeguard/native-app` 包含代码、Alembic 迁移、已构建的 `web/dist` 和 Python 3.12 虚拟环境。前端用 `pnpm --dir web install --frozen-lockfile` 和 `pnpm --dir web build` 构建。Python 依赖从 `uv export --no-dev --no-emit-project --frozen --format requirements-txt` 导出，以 `pip install --require-hashes` 安装。私有 `/srv/tradeguard/.app.env` 保存运行库地址、`TRADEGUARD_PUBLIC_ORIGIN` 和登录凭证，权限为 600。
+
+更新前对独立运行库执行 `alembic upgrade head`，然后重启并验证服务：
+
+```sh
+sudo systemctl restart tradeguard
+curl --fail http://127.0.0.1:8198/api/health
+```
+
+stock.zhiyu.hk 的旧入口由 zhiyu 的 Nginx 提供公网证书，并通过校验服务端证书的 HTTPS 转发到 kueng 的独立源站虚拟主机。转发源站仅接受 zhiyu 的流量。kueng 的 `/etc/nginx/conf.d/tradeguard-public.conf` 提供同名直连入口。两个入口均对登录路径按 IP 和全站分别限速。
+
+kueng 使用 Certbot 的 webroot 验证续签直连证书。DNS 仍指向旧入口时，zhiyu 将 ACME 验证路径转发到 kueng。切换 A 记录前分别验证公网 HTTP 和 HTTPS，切换后核对权威解析和续签。DNS 回退使用旧入口的 A 记录值。
+
+匿名访问可以读取市场数据和已保存的扫描结果。只有直接打开 `/portfolio`（兼容 `/monitor`）才会显示登录入口。持仓和手册 API 验证同一 HTTPS 会话，响应禁用缓存。会话有效期为 12 小时，重启需要重新登录。业务写接口、个人研究、自选、提醒和回测在本地控制台使用。
+
+旧 RDS 上的 `stock_market` 和 `stock_portfolio` 是只读数据来源。线上运行库由 Alembic 独立迁移。若旧库未开启 TLS，可经私网读取，或经 SSH 传输已导入并核对的历史缓存，保留行情原来源及持仓原始观察时间。线上服务无需持有旧库或券商凭证。
 
 ## 私有状态
 
@@ -20,7 +41,7 @@ Python CLI 与 FastAPI 共用业务服务，账户控制台只绑定本机。原
 
 公共站从 `public export` 生成单个 HTML，由 `public_site/export.py` 正向构造固定市场字段。仅从 security、daily_bar、scan_summary、scan_result 取明确公开字段，不调用私有 workspace report、不序列化完整 ORM、JSON 元数据或 research/portfolio/discipline 状态。标的上限 50、每股最多 60 根日线，市场、来源、复权、交易日显式传入，拒绝未来日期和混市场标的。HTML 数据转义 `<>&`；页面用 textContent 填文本，防止名称中的 HTML 变为脚本。
 
-导出要求新的空目录，避免误把其他文件一起部署。可以用任意静态服务器预览/托管，不需要生产数据库、账户密钥或个人 API。stock.zhiyu.hk 是后续部署目标；本阶段仅完成独立包，不改线上 DNS、服务或仓库公开状态。市场数据的再分发权由公开者核对；源码许可证仍依 provenance 处理。
+导出要求新的空目录，避免误把其他文件一起部署。可以用任意静态服务器预览或托管，不需要生产数据库、账户密钥或个人 API。市场数据的再分发权由公开者核对，源码许可证见 provenance。
 
 ## 验证
 

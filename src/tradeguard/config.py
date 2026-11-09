@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     selection_source_url: SecretStr | None = None
     portfolio_source_url: SecretStr | None = None
     migration_source_url: SecretStr | None = None
+    public_origin: str | None = None
+    portfolio_username: SecretStr | None = None
+    portfolio_password: SecretStr | None = None
     longbridge_app_key: SecretStr | None = None
     longbridge_app_secret: SecretStr | None = None
     longbridge_access_token: SecretStr | None = None
