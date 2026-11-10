@@ -29,6 +29,7 @@ from tradeguard.market.providers import (
     UniverseMember,
 )
 from tradeguard.market.service import latest_bar_date, save_bars, upsert_universe
+from tradeguard.online_sync import sync_after_pipeline
 from tradeguard.screening.service import event, scan
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -435,7 +436,6 @@ def run_cn_pipeline(
                 "complete",
                 f"每日流水线结束，来源 {source}，扫描 {len(scan_dates)} 个交易日，状态 {status}。",
             )
-            return {"run_id": run_id, **payload}
         except Exception as exc:
             with session() as db, db.begin():
                 row = db.get(Run, run_id)
@@ -448,3 +448,15 @@ def run_cn_pipeline(
                     }
             event(run_id, "failed", "每日流水线未完成。")
             raise
+    # The local pipeline is complete; the optional online copy cannot fail it.
+    online = sync_after_pipeline(scan_dates, "CN")
+    if online is not None:
+        event(
+            run_id,
+            "online_sync",
+            "线上同步完成。"
+            if online.get("status") == "success"
+            else f"线上同步失败，本地结果不受影响：{online.get('error')}",
+        )
+        payload["online_sync"] = online
+    return {"run_id": run_id, **payload}

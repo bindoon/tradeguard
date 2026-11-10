@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     selection_source_url: SecretStr | None = None
     portfolio_source_url: SecretStr | None = None
     migration_source_url: SecretStr | None = None
+    # One-way sync target for the online console; only database `tradeguard` is accepted.
+    online_database_url: SecretStr | None = None
+    online_ssh_tunnel: str | None = None
+    online_sync_bars: bool = False
     public_origin: str | None = None
     portfolio_username: SecretStr | None = None
     portfolio_password: SecretStr | None = None

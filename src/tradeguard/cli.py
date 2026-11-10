@@ -24,6 +24,7 @@ report = typer.Typer(no_args_is_help=True)
 workspace_app = typer.Typer(no_args_is_help=True)
 public_app = typer.Typer(no_args_is_help=True)
 backtest_app = typer.Typer(no_args_is_help=True)
+sync_app = typer.Typer(no_args_is_help=True)
 for name, sub in [
     ("market", market),
     ("scan", scan_app),
@@ -35,6 +36,7 @@ for name, sub in [
     ("workspace", workspace_app),
     ("public", public_app),
     ("backtest", backtest_app),
+    ("sync", sync_app),
 ]:
     app.add_typer(sub, name=name)
 
@@ -485,6 +487,32 @@ def pipeline_daily(
         return daily(target, symbols, source, refresh, selected)
 
     output(invoke)
+
+
+@sync_app.command("online")
+def sync_online_cmd(
+    date: Annotated[str | None, typer.Option(help="Trade date. Omit for the latest scan.")] = None,
+    start: Annotated[str | None, typer.Option("--from")] = None,
+    end: Annotated[str | None, typer.Option("--to")] = None,
+    market: str = "CN",
+    bars: Annotated[
+        bool | None, typer.Option("--bars/--no-bars", help="Also copy that day's daily bars.")
+    ] = None,
+    portfolio: Annotated[bool, typer.Option("--portfolio/--no-portfolio")] = True,
+):
+    """One-way copy of scans, report inputs and latest snapshots to the online `tradeguard` DB."""
+    from tradeguard.online_sync import sync_online
+
+    output(
+        lambda: sync_online(
+            day(date) if date else None,
+            start=day(start) if start else None,
+            end=day(end) if end else None,
+            market=market.upper(),
+            bars=bars,
+            portfolio=portfolio,
+        )
+    )
 
 
 @report.command("daily")

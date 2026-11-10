@@ -35,3 +35,10 @@ def database(monkeypatch):
         connection.execute(text(f"DROP DATABASE `{name}`"))
     admin.dispose()
     engine.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def no_online_sync(monkeypatch):
+    """Never let a test reach the real online console DB configured in a local .env."""
+    monkeypatch.setenv("TRADEGUARD_ONLINE_DATABASE_URL", "")
+    monkeypatch.setenv("TRADEGUARD_ONLINE_SSH_TUNNEL", "")

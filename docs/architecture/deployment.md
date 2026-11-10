@@ -29,6 +29,12 @@ kueng 使用 Certbot 的 webroot 验证续签直连证书。DNS 仍指向旧入�
 
 旧 RDS 上的 `stock_market` 和 `stock_portfolio` 是只读数据来源。线上运行库由 Alembic 独立迁移。若旧库未开启 TLS，可经私网读取，或经 SSH 传输已导入并核对的历史缓存，保留行情原来源及持仓原始观察时间。线上服务无需持有旧库或券商凭证。
 
+## 本地扫描同步到线上
+
+`tradeguard sync online [--date D | --from A --to B] [--bars] [--no-portfolio]` 把本地结果单向复制到线上运行库：按交易日镜像 scan 批次（job_run）、scan_summary、scan_result 及其引用的 security，再写入每个账户最新的 account/portfolio_snapshot。日报由 scan_summary/scan_result 实时生成，不单独存表，对线上库执行 `report daily` 得到同样结果。K 线（daily_bar 与覆盖表）默认不同步，`--bars` 或 `TRADEGUARD_ONLINE_SYNC_BARS=true` 才复制当日 K 线。
+
+目标只读 `TRADEGUARD_ONLINE_DATABASE_URL`，且库名必须是 `tradeguard`，不得与本地运行库或任何只读来源库相同，线上 Alembic 版本必须与本地一致。每个交易日一个事务，先删后插，可重复执行。`tradeguard_app` 只允许 kueng/zhiyu 来源，因此配置 `TRADEGUARD_ONLINE_SSH_TUNNEL=kueng:127.0.0.1:53316`，同步时临时开 `ssh -L` 到 URL 中的本机端口，结束后关闭。`pipeline daily --market CN` 成功后自动执行一次；同步失败只写 stderr 和 run_event，不影响本地流水线。
+
 ## 私有状态
 
 - watch_item：个人研究队列；每个证券/来源/复权唯一，原因可编辑，保留加入时间及关联扫描。删除只删除自选，不改账户、行情或历史提醒。
