@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import case, func, select, text
+from sqlalchemy import JSON, case, func, select, text, type_coerce
 from sqlalchemy.exc import SQLAlchemyError
 
 from tradeguard.config import settings
@@ -153,7 +153,7 @@ def result_rows(db, run):
     ]
 
 
-def summary(run, rows=None, *, groups=None, resonant_groups=None):
+def summary(run, rows=None, *, groups=None, resonant_groups=None, skipped_count=None):
     d = run.details
     if groups is None:
         groups = Counter(r["industry"] or "未知" for r in rows or [])
@@ -163,7 +163,8 @@ def summary(run, rows=None, *, groups=None, resonant_groups=None):
         )
     totals = d.get("universe", 0)
     skipped = d.get("skipped", [])
-    fallback_scanned = totals - len(skipped) if totals is not None else None
+    skipped_count = len(skipped) if skipped_count is None else skipped_count
+    fallback_scanned = totals - skipped_count if totals is not None else None
     duration = ((run.finished_at or now()) - run.started_at).total_seconds()
     options = d.get("filter_options", {})
     return {
@@ -192,7 +193,7 @@ def summary(run, rows=None, *, groups=None, resonant_groups=None):
         "marketRegime": d.get("market_regime", "unknown"),
         "benchmark": d.get("benchmark"),
         "totalStockCount": totals,
-        "filteredOutCount": d.get("filtered_out_count", len(skipped)),
+        "filteredOutCount": d.get("filtered_out_count", skipped_count),
         "scannedStockCount": d.get("scanned_count", fallback_scanned),
         "scanStrategies": d.get("strategies", []),
         "strategyHitCounts": d.get("strategy_hit_counts", {}),
@@ -213,7 +214,7 @@ def summary(run, rows=None, *, groups=None, resonant_groups=None):
     }
 
 
-def saved_summaries(db, runs):
+def saved_summaries(db, runs, skipped_counts=None):
     """Aggregate all displayed runs once, without loading strategy metadata per stock."""
     if not runs:
         return []
@@ -251,8 +252,15 @@ def saved_summaries(db, runs):
     for run_id, name, count, resonant in rows:
         groups[run_id][name] = count
         resonant_groups[run_id][name] = int(resonant)
+    skipped_counts = skipped_counts or {}
     return [
-        summary(run, groups=groups[run.id], resonant_groups=resonant_groups[run.id]) for run in runs
+        summary(
+            run,
+            groups=groups[run.id],
+            resonant_groups=resonant_groups[run.id],
+            skipped_count=skipped_counts.get(run.id),
+        )
+        for run in runs
     ]
 
 
@@ -493,16 +501,38 @@ def create_app():
                 item.id
                 for item in sorted(candidates, key=lambda item: item.started_at, reverse=True)[:200]
             ]
-            by_id = (
-                {
-                    run.id: run
-                    for run in db.scalars(select(Run).where(Run.id.in_(identifiers))).all()
-                }
-                if identifiers
-                else {}
+            if not identifiers:
+                return []
+            # Modern scans store the per-reason counts. Keep the symbol-level
+            # log only for old runs that need it to reconstruct those counts.
+            details = type_coerce(
+                case(
+                    (
+                        func.json_contains_path(Run.details, "one", "$.filter_counts") == 1,
+                        func.json_remove(Run.details, "$.skipped"),
+                    ),
+                    else_=Run.details,
+                ),
+                JSON,
+            ).label("details")
+            rows = db.execute(
+                select(
+                    Run.id,
+                    Run.status,
+                    Run.market,
+                    Run.market_date,
+                    Run.started_at,
+                    Run.finished_at,
+                    details,
+                    func.json_length(Run.details, "$.skipped").label("skipped_count"),
+                ).where(Run.id.in_(identifiers))
+            ).all()
+            by_id = {row.id: row for row in rows}
+            return saved_summaries(
+                db,
+                [by_id[identifier] for identifier in identifiers],
+                {row.id: row.skipped_count for row in rows},
             )
-            runs = [by_id[identifier] for identifier in identifiers]
-            return saved_summaries(db, runs)
 
     @app.get("/api/scan/dates")
     def scan_dates(market: str, source: str = "", adjustment: str = "forward"):

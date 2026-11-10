@@ -31,6 +31,11 @@ def test_history_uses_bounded_queries_and_preserves_historical_industries(databa
             )
             for index in range(12)
         ]
+        runs[0].details.update(
+            universe=20004,
+            skipped=[{"symbol": "600000.SH", "reason": "low_liquidity"}] * 20000,
+            filter_counts={"low_liquidity": 20000},
+        )
         db.add_all(runs)
         db.flush()
         for run in runs:
@@ -52,27 +57,44 @@ def test_history_uses_bounded_queries_and_preserves_historical_industries(databa
                 ]
             )
     statements = []
+    transferred = []
+
+    def bytes_sent(conn):
+        with conn.connection.cursor() as probe:
+            probe.execute("SHOW SESSION STATUS LIKE 'Bytes_sent'")
+            return int(probe.fetchone()[1])
 
     def record(conn, cursor, statement, parameters, context, executemany):
         if statement.lstrip().upper().startswith("SELECT"):
             statements.append(statement)
+            context.bytes_sent_before = bytes_sent(conn)
+
+    def measure(conn, cursor, statement, parameters, context, executemany):
+        if hasattr(context, "bytes_sent_before"):
+            transferred.append(bytes_sent(conn) - context.bytes_sent_before)
 
     event.listen(database, "before_cursor_execute", record)
+    event.listen(database, "after_cursor_execute", measure)
     try:
         response = TestClient(create_app()).get(
             "/api/scan/summaries?market=CN&source=fixture&adjustment=forward"
         )
     finally:
         event.remove(database, "before_cursor_execute", record)
+        event.remove(database, "after_cursor_execute", measure)
     assert response.status_code == 200
     assert len(statements) == 3, (
         "History uses an ID sort, an unsorted row fetch and one aggregation"
     )
+    assert sum(transferred) < 64 * 1024, "History must not download the symbol-level rejection log"
     sorted_queries = [statement for statement in statements if "ORDER BY" in statement]
     assert all("job_run.details" not in statement.split("FROM")[0] for statement in sorted_queries)
     rows = response.json()
     assert len(rows) == 12
     assert rows[0]["scanDate"] == str(day)
+    assert rows[0]["filteredOutCount"] == 20000
+    assert rows[0]["scannedStockCount"] == 4
+    assert rows[0]["filterCounts"] == {"low_liquidity": 20000}
     for row in rows:
         assert row["hitStockCount"] == 3
         assert row["candidateCount"] == 2
@@ -198,6 +220,7 @@ def test_large_scan_log_stays_readable_under_small_mysql_sort_buffer(database):
     assert rows[0]["executionDate"] > rows[1]["executionDate"]
     assert all(row["filteredOutCount"] == 20000 for row in rows)
     assert detail.json()["id"] == rows[0]["id"]
+    assert all(row["filterCounts"] == {"low_liquidity": 20000} for row in rows)
 
 
 def test_daily_history_can_list_sources_together_but_details_keep_each_scope(database):
